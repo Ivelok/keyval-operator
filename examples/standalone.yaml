@@ -1,0 +1,20 @@
+apiVersion: keyval.ivelok.io/v1alpha1
+kind: KeyValCluster
+metadata:
+  name: demo-standalone
+spec:
+  mode: Standalone
+  image: valkey/valkey:7.2
+  redisReplicas: 1
+  storage:
+    type: Persistent
+    size: 1Gi
+    cleanupOnDelete: false # keep PVC for DR when deleting the cluster
+  redisConfig:
+    appendonly: "yes"
+    protected-mode: "no"
+  service:
+    create: true
+    type: ClusterIP
+    ports:
+      redis: 6379

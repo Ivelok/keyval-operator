@@ -1,0 +1,454 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Successful or deferred reconcile runs per cluster",
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "id": 1,
+      "options": {
+        "legend": { "calcs": [], "displayMode": "table", "placement": "bottom" },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "expr": "sum by (result) (rate(keyval_reconcile_result_total{namespace=~\"$namespace\",cluster=~\"$cluster\"}[5m]))",
+          "legendFormat": "{{result}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Reconcile results (ops/s)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "P95 and average reconcile duration derived from histogram buckets",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "id": 2,
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom" },
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(keyval_reconcile_duration_seconds_bucket{namespace=~\"$namespace\",cluster=~\"$cluster\"}[5m])))",
+          "legendFormat": "p95",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(keyval_reconcile_duration_seconds_sum{namespace=~\"$namespace\",cluster=~\"$cluster\"}[5m])) / sum(rate(keyval_reconcile_duration_seconds_count{namespace=~\"$namespace\",cluster=~\"$cluster\"}[5m]))",
+          "legendFormat": "avg",
+          "refId": "B"
+        }
+      ],
+      "title": "Reconcile duration",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Planned requeue delay histogram (seconds)",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "id": 3,
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom" },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.90, sum by (le) (rate(keyval_operator_requeue_backoff_seconds_bucket{namespace=~\"$namespace\",cluster=~\"$cluster\"}[5m])))",
+          "legendFormat": "p90",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(keyval_operator_requeue_backoff_seconds_sum{namespace=~\"$namespace\",cluster=~\"$cluster\"}[5m])) / sum(rate(keyval_operator_requeue_backoff_seconds_count{namespace=~\"$namespace\",cluster=~\"$cluster\"}[5m]))",
+          "legendFormat": "avg",
+          "refId": "B"
+        }
+      ],
+      "title": "Requeue backoff",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Role patch errors and correction counts",
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "id": 4,
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "expr": "sum by (pod) (rate(keyval_operator_pod_label_patch_conflicts_total{namespace=~\"$namespace\",cluster=~\"$cluster\"}[5m]))",
+          "legendFormat": "conflicts - {{pod}}",
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (pod) (rate(keyval_operator_pod_label_patch_retries_total{namespace=~\"$namespace\",cluster=~\"$cluster\"}[5m]))",
+          "legendFormat": "retries - {{pod}}",
+          "refId": "B"
+        },
+        {
+          "expr": "sum by (cluster) (rate(keyval_label_corrections_total{namespace=~\"$namespace\",cluster=~\"$cluster\"}[5m]))",
+          "legendFormat": "corrections",
+          "refId": "C"
+        }
+      ],
+      "title": "Pod label corrections / conflicts",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Sentinel failures, quorum status, and reset counts",
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "id": 5,
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom" },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        {
+          "expr": "max by (cluster) (keyval_operator_sentinel_quorum_healthy{namespace=~\"$namespace\",cluster=~\"$cluster\"})",
+          "legendFormat": "quorum healthy",
+          "refId": "A"
+        },
+        {
+          "expr": "max by (cluster) (keyval_operator_sentinel_ready_members{namespace=~\"$namespace\",cluster=~\"$cluster\"})",
+          "legendFormat": "ready",
+          "refId": "B"
+        },
+        {
+          "expr": "max by (cluster) (keyval_operator_sentinel_quorum_target{namespace=~\"$namespace\",cluster=~\"$cluster\"})",
+          "legendFormat": "target",
+          "refId": "C"
+        },
+        {
+          "expr": "sum by (cluster) (rate(keyval_operator_sentinel_resets_total{namespace=~\"$namespace\",cluster=~\"$cluster\"}[5m]))",
+          "legendFormat": "resets/s",
+          "refId": "D"
+        }
+      ],
+      "title": "Sentinel quorum & resets",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Live master and replica lag",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "id": 6,
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        {
+          "expr": "keyval_operator_replication_lag_seconds{namespace=~\"$namespace\",cluster=~\"$cluster\"}",
+          "legendFormat": "{{pod}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Replication lag (seconds)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Redis/Sentinel retry attempts by command",
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "id": 7,
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom" },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "expr": "sum by (command, endpoint) (rate(keyval_operator_redis_client_retries_total{namespace=~\"$namespace\",cluster=~\"$cluster\"}[5m]))",
+          "legendFormat": "{{command}} @ {{endpoint}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Redis client retries",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Bootstrap attempts / freshness gap",
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "gap" },
+            "properties": [
+              { "id": "unit", "value": "bytes" }
+            ]
+          }
+        ]
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "id": 8,
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "single" }
+      },
+      "targets": [
+        {
+          "expr": "sum by (mode) (increase(keyval_bootstrap_attempt_total{namespace=~\"$namespace\",cluster=~\"$cluster\"}[1h]))",
+          "legendFormat": "attempts (last hour) {{mode}}",
+          "refId": "A"
+        },
+        {
+          "expr": "keyval_operator_bootstrap_freshness_gap_bytes{namespace=~\"$namespace\",cluster=~\"$cluster\"}",
+          "legendFormat": "gap",
+          "refId": "B"
+        },
+        {
+          "expr": "keyval_operator_bootstrap_freshness_source{namespace=~\"$namespace\",cluster=~\"$cluster\"}",
+          "legendFormat": "source",
+          "refId": "C"
+        }
+      ],
+      "title": "Bootstrap activity",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Immutable service events and scaling activity",
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 32 },
+      "id": 9,
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom" },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        {
+          "expr": "sum by (service, field) (rate(keyval_operator_service_immutable_change_total{namespace=~\"$namespace\",cluster=~\"$cluster\"}[5m]))",
+          "legendFormat": "immutable {{service}}/{{field}}",
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (direction) (rate(keyval_scale_operations_total{namespace=~\"$namespace\",cluster=~\"$cluster\"}[5m]))",
+          "legendFormat": "scale {{direction}}",
+          "refId": "B"
+        }
+      ],
+      "title": "Service immutability & scale ops",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Controller queue depth and leader election status",
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 32 },
+      "id": 10,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": ["last"],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value"
+      },
+      "targets": [
+        {
+          "expr": "workqueue_depth{controller=\"keyvalcluster\",name=\"keyvalcluster\"}",
+          "legendFormat": "queue depth",
+          "refId": "A"
+        },
+        {
+          "expr": "max(leader_election_master_status{name=\"keyval-operator.ivelok.io\"})",
+          "legendFormat": "leader",
+          "refId": "B"
+        },
+        {
+          "expr": "keyval_operator_controller_reconcile_queue_depth{controller=\"keyvalcluster\",namespace=~\"$namespace\"}",
+          "legendFormat": "controller queue depth",
+          "refId": "C"
+        }
+      ],
+      "title": "Queue / Leader status",
+      "type": "stat"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["keyval-operator"],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "selected": false,
+          "text": "",
+          "value": ""
+        },
+        "hide": 0,
+        "label": "Prometheus",
+        "name": "datasource",
+        "options": [],
+        "query": "prometheus",
+        "refresh": 1,
+        "type": "datasource"
+      },
+      {
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "$datasource"
+        },
+        "definition": "label_values(keyval_reconcile_result_total, namespace)",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Namespace",
+        "multi": true,
+        "name": "namespace",
+        "query": "label_values(keyval_reconcile_result_total, namespace)",
+        "refresh": 2,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "$datasource"
+        },
+        "definition": "label_values(keyval_reconcile_result_total{namespace=~\"$namespace\"}, cluster)",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Cluster",
+        "multi": true,
+        "name": "cluster",
+        "query": "label_values(keyval_reconcile_result_total{namespace=~\"$namespace\"}, cluster)",
+        "refresh": 2,
+        "sort": 1,
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "10s",
+      "30s",
+      "1m",
+      "5m",
+      "15m"
+    ]
+  },
+  "timezone": "",
+  "title": "KeyVal Operator Overview",
+  "uid": "keyval-operator-overview",
+  "version": 1,
+  "weekStart": ""
+}

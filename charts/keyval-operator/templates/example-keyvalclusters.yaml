@@ -1,0 +1,19 @@
+{{- if and .Values.examples.enabled .Values.examples.clusters }}
+{{- $defaultNamespace := default .Release.Namespace .Values.examples.namespace }}
+{{- range $idx, $cluster := .Values.examples.clusters }}
+---
+apiVersion: keyval.ivelok.io/v1alpha1
+kind: KeyValCluster
+metadata:
+  name: {{ required "examples.clusters entries must define a name" $cluster.name }}
+  namespace: {{ default $defaultNamespace $cluster.namespace }}
+  labels:
+    {{- include "keyval-operator.labels" $ | nindent 4 }}
+  {{- with $cluster.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- toYaml $cluster.spec | nindent 2 }}
+{{- end }}
+{{- end }}

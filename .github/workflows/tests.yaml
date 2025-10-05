@@ -1,0 +1,102 @@
+name: Test Matrix
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+
+env:
+  GO_VERSION: "1.24.0"
+
+jobs:
+  unit:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: Go test (race)
+        run: go test -race ./...
+      - name: Helm lint
+        run: make helm-lint helm-template
+      - name: Runbook structure check
+        run: make runbook-check
+
+  k8s:
+    name: K8s Suites (${{ matrix.suite }})
+    runs-on: ubuntu-latest
+    needs: unit
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [ e2e, chaos ]
+    env:
+      IMG: controller:ci
+      KIND_CLUSTER_NAME: kv-ci-${{ matrix.suite }}
+      KEEP_ARTIFACTS: "1"
+      KEEP_RESOURCES: "0"
+      E2E_TIMEOUT: 25m
+      CHAOS_TIMEOUT: 25m
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: Set up kind cluster
+        uses: helm/kind-action@v1.10.0
+        with:
+          cluster_name: ${{ env.KIND_CLUSTER_NAME }}
+          node_image: kindest/node:v1.29.2
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: v1.29.2
+      - name: Run suite
+        run: |
+          set -euo pipefail
+          if [ "${{ matrix.suite }}" = "e2e" ]; then
+            IMG=${IMG} KIND_CLUSTER_NAME=${KIND_CLUSTER_NAME} E2E_TIMEOUT=${E2E_TIMEOUT} KEEP_ARTIFACTS=${KEEP_ARTIFACTS} make e2e
+          else
+            IMG=${IMG} KIND_CLUSTER_NAME=${KIND_CLUSTER_NAME} make redeploy
+            KEEP_ARTIFACTS=${KEEP_ARTIFACTS} CHAOS_TIMEOUT=${CHAOS_TIMEOUT} make chaos
+          fi
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.suite }}-artifacts
+          path: |
+            ${{ matrix.suite == 'e2e' && 'test/e2e/artifacts' || 'test/chaos/artifacts' }}
+
+  sla:
+    name: SLA Report
+    needs: k8s
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: Download e2e artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: e2e-artifacts
+          path: test/e2e/artifacts
+      - name: Download chaos artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: chaos-artifacts
+          path: test/chaos/artifacts
+      - name: Generate SLA report
+        run: make sla-report
+      - name: Upload SLA report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sla-report
+          path: test/sla/report.json

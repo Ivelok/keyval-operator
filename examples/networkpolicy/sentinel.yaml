@@ -1,0 +1,29 @@
+# Example NetworkPolicy limiting access to Sentinel sidecars within a KeyValCluster.
+# Replace <cluster-name> and selectors to fit your namespaces and client labels.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: <cluster-name>-sentinel-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: <cluster-name>-sentinel
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          keyval.ivelok.io/component: operator
+    ports:
+    - port: 26379
+      protocol: TCP
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: <cluster-name>-redis
+    ports:
+    - port: 6379
+      protocol: TCP

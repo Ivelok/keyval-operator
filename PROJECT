@@ -1,0 +1,12 @@
+domain: keyval.ivelok.io
+layout:
+- go.kubebuilder.io/v3
+projectName: keyval-operator
+repo: github.com/ivelok/keyval-operator
+resources:
+- group: keyval
+  kind: KeyValCluster
+  path: api/v1alpha1
+  version: v1alpha1
+version: 3
+

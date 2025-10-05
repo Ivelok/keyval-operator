@@ -1,0 +1,170 @@
+{
+  "id": null,
+  "uid": "keyval-observability",
+  "title": "KeyVal Operator Overview",
+  "timezone": "",
+  "version": 1,
+  "schemaVersion": 39,
+  "refresh": "30s",
+  "style": "dark",
+  "editable": true,
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "namespace",
+        "type": "query",
+        "datasource": "Prometheus",
+        "refresh": 2,
+        "query": "label_values(keyval_operator_reconciliations_total, namespace)",
+        "multi": false,
+        "includeAll": false,
+        "options": [],
+        "current": {}
+      },
+      {
+        "name": "cluster",
+        "type": "query",
+        "datasource": "Prometheus",
+        "refresh": 2,
+        "query": "label_values(keyval_operator_reconciliations_total{namespace=\"$namespace\"}, cluster)",
+        "multi": false,
+        "includeAll": false,
+        "options": [],
+        "current": {}
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Role Decisions (5m rate)",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum by (source) (rate(keyval_operator_failover_decisions_total{namespace=\"$namespace\", cluster=\"$cluster\"}[5m]))",
+          "legendFormat": "{{source}}"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "horizontal",
+        "textMode": "value_and_name"
+      },
+      "gridPos": {"h": 6, "w": 8, "x": 0, "y": 0}
+    },
+    {
+      "id": 2,
+      "title": "Replication Lag (max per pod)",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "orange", "value": 3},
+              {"color": "red", "value": 5}
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "max by (pod) (keyval_operator_replication_lag_seconds{namespace=\"$namespace\", cluster=\"$cluster\"})",
+          "legendFormat": "{{pod}}"
+        }
+      ],
+      "gridPos": {"h": 8, "w": 16, "x": 8, "y": 0}
+    },
+    {
+      "id": 3,
+      "title": "Update In Progress",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "max(keyval_operator_update_in_progress{namespace=\"$namespace\", cluster=\"$cluster\"})",
+          "legendFormat": "update"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "horizontal",
+        "colorMode": "value",
+        "textMode": "value"
+      },
+      "gridPos": {"h": 6, "w": 8, "x": 0, "y": 6}
+    },
+    {
+      "id": 4,
+      "title": "Bootstrap Failures (24h)",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "increase(keyval_operator_bootstrap_failures_total{namespace=\"$namespace\"}[24h])",
+          "legendFormat": "failures"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "horizontal",
+        "colorMode": "background",
+        "textMode": "value"
+      },
+      "gridPos": {"h": 6, "w": 8, "x": 0, "y": 12}
+    },
+    {
+      "id": 5,
+      "title": "Reconcile Errors (15m)",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(keyval_operator_reconciliations_total{namespace=\"$namespace\", cluster=\"$cluster\", result=\"error\"}[15m]))",
+          "legendFormat": "errors"
+        }
+      ],
+      "gridPos": {"h": 8, "w": 16, "x": 8, "y": 8}
+    }
+  ],
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": "-- Grafana --",
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  }
+}

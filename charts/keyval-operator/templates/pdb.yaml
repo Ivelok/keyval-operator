@@ -1,0 +1,14 @@
+{{- if .Values.manager.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "keyval-operator.fullname" . }}-controller
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "keyval-operator.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.manager.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "keyval-operator.selectorLabels" . | nindent 6 }}
+{{- end }}

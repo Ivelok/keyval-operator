@@ -7,6 +7,7 @@
 *.dll
 *.so
 *.dylib
+.DS_Store
 
 # Test binary, built with `go test -c`
 *.test
@@ -28,5 +29,11 @@ go.work.sum
 .env
 
 # Editor/IDE
-# .idea/
-# .vscode/
+.idea/
+.vscode/
+.codex
+
+#artifacts
+test/e2e/artifacts/
+test/chaos/artifacts/
+test/sla/report.json

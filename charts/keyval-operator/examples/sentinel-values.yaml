@@ -1,0 +1,39 @@
+examples:
+  enabled: true
+  namespace: keyval-databases
+  clusters:
+    - name: valkey-prod
+      spec:
+        mode: Sentinel
+        redisReplicas: 5
+        sentinelCount: 5
+        image: ghcr.io/ivelok/valkey:7.4
+        sentinelImage: ghcr.io/ivelok/valkey-sentinel:7.4
+        storage:
+          type: Persistent
+          size: 100Gi
+          storageClassName: fast-ssd
+          cleanupOnDelete: false
+        health:
+          replicationLagSecondsMax: 5
+          failoverTimeoutSeconds: 20
+          minReplicasForSafety: 3
+        security:
+          auth:
+            enabled: true
+            username: sentinel
+            passwordSecretRef:
+              name: valkey-auth
+              key: password
+          tls:
+            enabled: true
+            secretName: valkey-tls
+            requireClientAuth: true
+            disablePlaintext: true
+        redisConfig:
+          maxmemory: "8gb"
+          maxmemory-policy: allkeys-lru
+        sentinelConfig:
+          down-after-milliseconds: "8000"
+          failover-timeout: "30000"
+          parallel-syncs: "1"

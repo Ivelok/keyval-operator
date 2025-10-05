@@ -1,0 +1,32 @@
+# Example NetworkPolicy limiting access to Redis pods for a given KeyValCluster.
+# Replace <cluster-name> and namespace selectors to match your environment.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: <cluster-name>-redis-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: <cluster-name>-redis
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: keyval-apps
+      podSelector:
+        matchLabels:
+          access.keyval.ivelok.io/<cluster-name>: "true"
+    ports:
+    - port: 6379
+      protocol: TCP
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: <cluster-name>-redis
+    ports:
+    - port: 6379
+      protocol: TCP
