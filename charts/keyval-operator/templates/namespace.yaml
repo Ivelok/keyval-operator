@@ -1,0 +1,12 @@
+{{- if and .Values.namespace.create (ne .Release.Namespace "") -}}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ default .Release.Namespace .Values.namespace.name }}
+  labels:
+    {{- include "keyval-operator.labels" . | nindent 4 }}
+  {{- with .Values.namespace.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}

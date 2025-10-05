@@ -1,0 +1,25 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: keyval-operator
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: keyval-operator
+spec:
+  selector:
+    matchLabels:
+      control-plane: controller-manager
+  namespaceSelector:
+    matchNames:
+      - keyval-operator-system
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
+      honorLabels: true
+      relabelings:
+        - action: replace
+          sourceLabels: ["namespace"]
+          regex: "(.+)"
+          targetLabel: "operator_namespace"

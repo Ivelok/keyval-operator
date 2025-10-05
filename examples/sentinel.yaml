@@ -1,0 +1,42 @@
+apiVersion: keyval.ivelok.io/v1alpha1
+kind: KeyValCluster
+metadata:
+  name: demo-sentinel
+spec:
+  mode: Sentinel
+  image: valkey/valkey:7.2
+  # sentinelImage: bitnami/redis-sentinel:7.2 # optional override
+  redisReplicas: 3
+  sentinelCount: 3
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+  sentinelResources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+  storage:
+    type: Persistent
+    size: 1Gi
+    cleanupOnDelete: true # automatically delete PVCs when removing the cluster
+  redisConfig:
+    appendonly: "yes"
+    protected-mode: "no"
+  sentinelConfig:
+    down-after-milliseconds: "5000"
+    failover-timeout: "60000"
+  health:
+    replicationLagSecondsMax: 5
+    failoverTimeoutSeconds: 45
+    minReplicasForSafety: 3
+  service:
+    create: true
+    type: ClusterIP
+    ports:
+      redis: 6379
+  sentinelService:
+    create: true
+    type: ClusterIP
+    ports:
+      sentinel: 26379

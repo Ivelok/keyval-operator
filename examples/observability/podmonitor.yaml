@@ -1,0 +1,27 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: keyval-redis-exporter
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: keyval-operator
+spec:
+  namespaceSelector:
+    matchNames:
+      - keyval
+  selector:
+    matchLabels:
+      keyvalcluster: demo
+      app: demo-redis
+  podMetricsEndpoints:
+    - port: redis-exporter
+      interval: 15s
+      scrapeTimeout: 5s
+      path: /metrics
+      relabelings:
+        - action: replace
+          targetLabel: pod
+          sourceLabels: ["pod"]
+        - action: replace
+          targetLabel: role
+          sourceLabels: ["role"]

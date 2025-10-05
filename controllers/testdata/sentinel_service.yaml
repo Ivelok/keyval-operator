@@ -1,0 +1,13 @@
+metadata:
+  labels:
+    app: demo-sentinel
+    keyvalcluster: demo
+  name: demo-sentinel
+  namespace: default
+spec:
+  clusterIP: ""
+  ports:
+  - name: sentinel
+    port: 26379
+  selector:
+  - app=demo-sentinel

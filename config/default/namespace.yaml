@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: keyval-operator-system
+  labels:
+    control-plane: controller-manager
+

@@ -1,0 +1,10 @@
+KeyVal Operator has been deployed.
+
+To verify the controller is running:
+  kubectl -n {{ .Release.Namespace }} get deploy {{ include "keyval-operator.fullname" . }}-controller
+
+To install sample clusters (if enabled):
+  kubectl -n {{ default .Release.Namespace .Values.examples.namespace }} get keyvalclusters
+
+For installation instructions and configuration details visit:
+  https://github.com/ivelok/keyval-operator/tree/main/docs/install.md

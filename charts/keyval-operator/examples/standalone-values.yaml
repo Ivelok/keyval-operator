@@ -1,0 +1,20 @@
+examples:
+  enabled: true
+  namespace: keyval-dev
+  clusters:
+    - name: redis-dev
+      spec:
+        mode: Standalone
+        redisReplicas: 1
+        engine: Redis
+        image: redis:7.2
+        storage:
+          type: Persistent
+          size: 5Gi
+        security:
+          auth:
+            enabled: false
+        health:
+          replicationLagSecondsMax: 5
+          failoverTimeoutSeconds: 20
+          minReplicasForSafety: 1

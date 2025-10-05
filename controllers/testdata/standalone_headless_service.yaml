@@ -1,0 +1,13 @@
+metadata:
+  labels:
+    app: demo-redis
+    keyvalcluster: demo
+  name: demo-headless
+  namespace: default
+spec:
+  clusterIP: None
+  ports:
+  - name: redis
+    port: 6379
+  selector:
+  - app=demo-redis

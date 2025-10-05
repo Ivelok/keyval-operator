@@ -1,0 +1,108 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "SemVer version (overrides tag when provided)"
+        required: false
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+
+env:
+  GO_VERSION: "1.24.0"
+  HELM_VERSION: v3.15.2
+  REGISTRY: ghcr.io
+  IMAGE_NAME: keyval-operator
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3.5.0
+
+      - name: Docker login (GHCR)
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Determine version
+        id: vars
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            version=${{ github.event.inputs.version }}
+          else
+            version=${GITHUB_REF_NAME#v}
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tagged-version=v${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Unit tests
+        run: go test ./...
+
+      - name: Helm lint
+        run: make helm-lint helm-template
+
+      - name: Build and release artifacts
+        env:
+          VERSION: ${{ steps.vars.outputs.version }}
+          RELEASE_REGISTRY: ${{ env.REGISTRY }}/${{ github.repository_owner }}
+          RELEASE_REPOSITORY: ${{ env.IMAGE_NAME }}
+          COSIGN_EXPERIMENTAL: "1"
+        run: |
+          set -euo pipefail
+          make release VERSION=${VERSION} RELEASE_REGISTRY=${RELEASE_REGISTRY} RELEASE_REPOSITORY=${RELEASE_REPOSITORY}
+
+      - name: Upload Helm chart artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: helm-chart
+          path: dist/charts/*.tgz
+
+      - name: Generate changelog
+        id: changelog
+        uses: mikepenz/release-changelog-builder-action@v4
+        with:
+          configuration: .github/changelog-config.json
+          toTag: ${{ steps.vars.outputs.tagged-version }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.vars.outputs.tagged-version }}
+          name: ${{ steps.vars.outputs.tagged-version }}
+          body: ${{ steps.changelog.outputs.changelog }}
+          files: dist/charts/*.tgz
+
+      - name: Publish OCI Helm chart
+        env:
+          HELM_EXPERIMENTAL_OCI: "1"
+        run: |
+          set -euo pipefail
+          CHART_PACKAGE=$(ls dist/charts/*.tgz | head -n1)
+          helm registry login ${{ env.REGISTRY }} -u ${{ github.actor }} -p ${{ secrets.GITHUB_TOKEN }}
+          helm push "$CHART_PACKAGE" oci://${{ env.REGISTRY }}/${{ github.repository_owner }}

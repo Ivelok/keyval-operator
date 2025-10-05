@@ -1,0 +1,28 @@
+metadata:
+  labels:
+    app: demo-redis
+    keyvalcluster: demo
+  name: demo
+  namespace: default
+spec:
+  containers:
+  - name: redis
+    ports:
+    - 6379
+  initContainers:
+  - name: kv-bootstrap-role
+    ports: null
+  replicas: 1
+  selector:
+  - app=demo-redis
+  - keyvalcluster=demo
+  serviceName: demo-headless
+  updateStrategy: OnDelete
+  volumeClaimTemplates: null
+  volumes:
+  - emptyDir: true
+    name: runtime-conf
+  - emptyDir: true
+    name: data
+  - emptyDir: false
+    name: config

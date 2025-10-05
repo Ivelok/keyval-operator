@@ -1,0 +1,23 @@
+{
+  "$schema": "https://raw.githubusercontent.com/mikepenz/release-changelog-builder-action/main/schema.json",
+  "categories": [
+    {
+      "title": "Breaking Changes",
+      "labels": ["breaking-change"]
+    },
+    {
+      "title": "Features",
+      "labels": ["feature", "enhancement"]
+    },
+    {
+      "title": "Bug Fixes",
+      "labels": ["bug", "fix"]
+    },
+    {
+      "title": "Documentation",
+      "labels": ["docs"]
+    }
+  ],
+  "template": "## Changelog\n{{#each categories}}### {{title}}\n{{#each issues}}- {{this}}\n{{/each}}\n{{/each}}\n",
+  "pr_template": "- {{title}} (#{{number}})"
+}
