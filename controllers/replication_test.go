@@ -50,6 +50,7 @@ func (f *fakeClient) ConfigGet(context.Context, string) (string, bool, error) { 
 func (f *fakeClient) ConfigSet(context.Context, string, string) error         { return nil }
 func (f *fakeClient) ConfigRewrite(context.Context) error                     { return nil }
 func (f *fakeClient) Auth(context.Context, string, string) error              { return nil }
+func (f *fakeClient) DBSize(context.Context) (int64, error)                   { return 0, nil }
 
 type fakeFactory struct{ m map[string]*fakeClient }
 

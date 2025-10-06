@@ -57,6 +57,7 @@ controllers/internal/
 1. **Fetch CR and finalize** — ensure the finalizer exists; when deletion is requested, invoke `finalizeCluster`.
 2. **Security** — `security.FromSpec` loads AUTH/TLS secrets and returns `Settings`; when `HasAuth` and/or `HasTLS` are true the client configuration is updated and the logger records the active modes.
 3. **Render resources** — call `resources.ConfigMap`, `HeadlessService`, `MasterService`, optional `ReplicasService` and Sentinel services (including headless), plus Redis/Sentinel StatefulSets and the PDB. Everything is applied via SSA with a dedicated `FieldOwner`. Optional services follow `spec.service|replicasService|sentinelService.create`: when toggled to `false` the operator deletes the Service with `propagation=Foreground`, logs `component=service action=delete`, emits `ServiceRemoved`, and bumps `keyval_operator_service_removed_total{service=...}`. Re-enabling the flag recreates the Service while preserving the ClusterIP (`PreserveClusterIP`) and owner references. The toggles are meant for operator-managed services; keep `create=true` if an external system owns the Service to avoid removal. Sentinel StatefulSet `Apply` errors are classified: attempts to change immutable fields (e.g., `spec.serviceName`, `spec.selector`, `spec.volumeClaimTemplates`) raise the `SentinelApplyImmutableField` event, set `Reconciled=False` with reason `ImmutableField`, and increment `keyval_operator_sentinel_apply_failures_total{reason="immutable_field"}`; all other errors are treated as transient and stop reconcile for backoff.
+4. **External import (optional)** — when `spec.bootstrap.externalSource` is present, the importer attaches the bootstrap pod as a replica of the remote instance and aborts the pipeline immediately after persisting status. For `Snapshot` mode it detaches with `REPLICAOF NO ONE` once the link is healthy, records `state=Completed`, then resumes the remaining phases. For `Live` mode it transitions to `state=Following`, keeps the link active, emits `ExternalImportStarted`, and requeues every few seconds while `ConditionExternalImport` reports reason `Following`. When the `externalSource` block is removed, the importer performs the cutover (detach + clear `masterauth`), emits `ExternalImportCompleted`, and allows reconciliation to continue with the usual runtime/label/update phases.
 4. **Inventory pods** — list pods via the headless Service, sort by ordinal, readiness, and PVC annotations.
 5. **Replication and roles** —
    - `opreplication.EnsureTopology` returns the master, role map, and drift list.
@@ -92,13 +93,16 @@ controllers/internal/
 | `keyval_operator_redis_client_retries_total{namespace,cluster,command,endpoint}` | Counter | Extra Redis/Sentinel attempts beyond the initial call. |
 | `keyval_failover_triggered_total{namespace,cluster,type}` / `keyval_failover_completed_total{namespace,cluster}` | Counter | Controlled failovers initiated and completed. |
 | `keyval_bootstrap_attempt_total{namespace,cluster,mode}` / `keyval_bootstrap_failure_total{namespace,cluster}` | Counter | Bootstrap attempts and failures (`standalone`/`sentinel`). |
+| `keyval_external_import_attempt_total{namespace,cluster,mode}` / `keyval_external_import_success_total{…}` | Counter | External import attempts and successful completions grouped by sync mode. |
+| `keyval_external_import_failure_total{namespace,cluster,reason}` | Counter | External import failures (reason = target_not_empty, timeout, source_unreachable, …). |
+| `keyval_external_import_duration_seconds{namespace,cluster,mode}` | Histogram | Duration of bootstrap imports (per mode). |
 | `keyval_runtime_config_applied_total{namespace,cluster,component}` / `keyval_runtime_config_failed_total{…}` | Counter | Redis/Sentinel runtime configuration updates. |
 | `keyval_operator_sentinel_*` (quorum gauges, ready members, resets) | Gauge/Counter | Sentinel health monitoring. |
 | `keyval_operator_sentinel_apply_failures_total{namespace,cluster,reason}` | Counter | Sentinel StatefulSet SSA errors (`reason=immutable_field|error`); feeds drift alerts and runbooks. |
 | `keyval_operator_requeue_backoff_seconds{namespace,cluster}` | Histogram | Effective delay before the next reconcile (exponential backoff + internal requirements). |
 
 ### Kubernetes Events
-- `BootstrapStart` / `BootstrapFinish`, `StartFailover`, `FailoverTriggered`, `FailoverCompleted`, `NewMaster`, `NoGoodSlave`.
+- `BootstrapStart` / `BootstrapFinish`, `ExternalImportStarted` / `ExternalImportCompleted` / `ExternalImportFailed`, `StartFailover`, `FailoverTriggered`, `FailoverCompleted`, `NewMaster`, `NoGoodSlave`.
 - `SentinelQuorumLost` / `SentinelQuorumRestored`.
 - `SentinelApplyImmutableField` / `SentinelApplyFailed`.
 - `RollingStepBlocked` / `RollingStepResumed`, `PodEvicted`, `PDBModeSwitched`.

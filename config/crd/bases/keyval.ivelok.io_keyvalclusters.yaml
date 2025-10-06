@@ -61,6 +61,192 @@ spec:
               - Standalone: redisReplicas must equal 1; sentinelCount and sentinelConfig must be omitted.
               - Sentinel: redisReplicas >= 3; sentinelCount present, odd, and >= 3.
             properties:
+              bootstrap:
+                description: bootstrap configures optional data seeding before the
+                  cluster becomes primary.
+                properties:
+                  externalSource:
+                    description: |-
+                      externalSource instructs the operator to import data from a remote Redis/Valkey deployment
+                      before promoting local pods to master.
+                    properties:
+                      abortIfExistingData:
+                        default: true
+                        description: |-
+                          abortIfExistingData stops the import if the local cluster already has keys.
+                          Defaults to true to avoid overwriting data accidentally.
+                        type: boolean
+                      address:
+                        description: address is the Redis/Valkey endpoint to import
+                          data from. Supports redis:// and rediss:// URIs.
+                        pattern: ^(redis|rediss)://.+$
+                        type: string
+                      auth:
+                        description: auth references optional credentials used when
+                          connecting to the source instance.
+                        properties:
+                          passwordSecretRef:
+                            description: passwordSecretRef points to the secret containing
+                              the ACL password/token (optional).
+                            properties:
+                              key:
+                                description: The key of the secret to select from.  Must
+                                  be a valid secret key.
+                                type: string
+                              name:
+                                default: ""
+                                description: |-
+                                  Name of the referent.
+                                  This field is effectively required, but due to backwards compatibility is
+                                  allowed to be empty. Instances of this type with an empty value here are
+                                  almost certainly wrong.
+                                  More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                type: string
+                              optional:
+                                description: Specify whether the Secret or its key
+                                  must be defined
+                                type: boolean
+                            required:
+                            - key
+                            type: object
+                            x-kubernetes-map-type: atomic
+                          usernameSecretRef:
+                            description: usernameSecretRef points to the secret containing
+                              the ACL username (optional).
+                            properties:
+                              key:
+                                description: The key of the secret to select from.  Must
+                                  be a valid secret key.
+                                type: string
+                              name:
+                                default: ""
+                                description: |-
+                                  Name of the referent.
+                                  This field is effectively required, but due to backwards compatibility is
+                                  allowed to be empty. Instances of this type with an empty value here are
+                                  almost certainly wrong.
+                                  More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                type: string
+                              optional:
+                                description: Specify whether the Secret or its key
+                                  must be defined
+                                type: boolean
+                            required:
+                            - key
+                            type: object
+                            x-kubernetes-map-type: atomic
+                        type: object
+                      maxInitialSyncDuration:
+                        default: 30m
+                        description: maxInitialSyncDuration bounds how long the operator
+                          waits for the initial data copy to complete.
+                        type: string
+                      syncMode:
+                        default: Snapshot
+                        description: syncMode controls how the operator synchronises
+                          data from the external source.
+                        enum:
+                        - Snapshot
+                        - Live
+                        type: string
+                      tls:
+                        description: tls configures TLS settings for the connection.
+                        properties:
+                          caBundleSecretRef:
+                            description: caBundleSecretRef references the secret key
+                              containing the trusted CA bundle.
+                            properties:
+                              key:
+                                description: The key of the secret to select from.  Must
+                                  be a valid secret key.
+                                type: string
+                              name:
+                                default: ""
+                                description: |-
+                                  Name of the referent.
+                                  This field is effectively required, but due to backwards compatibility is
+                                  allowed to be empty. Instances of this type with an empty value here are
+                                  almost certainly wrong.
+                                  More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                type: string
+                              optional:
+                                description: Specify whether the Secret or its key
+                                  must be defined
+                                type: boolean
+                            required:
+                            - key
+                            type: object
+                            x-kubernetes-map-type: atomic
+                          clientCertSecretRef:
+                            description: clientCertSecretRef references the secret
+                              key containing the optional client certificate.
+                            properties:
+                              key:
+                                description: The key of the secret to select from.  Must
+                                  be a valid secret key.
+                                type: string
+                              name:
+                                default: ""
+                                description: |-
+                                  Name of the referent.
+                                  This field is effectively required, but due to backwards compatibility is
+                                  allowed to be empty. Instances of this type with an empty value here are
+                                  almost certainly wrong.
+                                  More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                type: string
+                              optional:
+                                description: Specify whether the Secret or its key
+                                  must be defined
+                                type: boolean
+                            required:
+                            - key
+                            type: object
+                            x-kubernetes-map-type: atomic
+                          clientKeySecretRef:
+                            description: clientKeySecretRef references the secret
+                              key containing the optional client private key.
+                            properties:
+                              key:
+                                description: The key of the secret to select from.  Must
+                                  be a valid secret key.
+                                type: string
+                              name:
+                                default: ""
+                                description: |-
+                                  Name of the referent.
+                                  This field is effectively required, but due to backwards compatibility is
+                                  allowed to be empty. Instances of this type with an empty value here are
+                                  almost certainly wrong.
+                                  More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                type: string
+                              optional:
+                                description: Specify whether the Secret or its key
+                                  must be defined
+                                type: boolean
+                            required:
+                            - key
+                            type: object
+                            x-kubernetes-map-type: atomic
+                          enabled:
+                            description: enabled toggles TLS for the remote connection.
+                              When using a rediss:// address, this is implied.
+                            type: boolean
+                          insecureSkipVerify:
+                            description: insecureSkipVerify disables server certificate
+                              verification (not recommended).
+                            type: boolean
+                        required:
+                        - enabled
+                        type: object
+                    required:
+                    - address
+                    type: object
+                    x-kubernetes-validations:
+                    - message: address must be set
+                      rule: self.address != ""
+                    - message: tls.caBundleSecretRef must be set when TLS is enabled
+                      rule: '!(has(self.tls) && self.tls.enabled == true) || has(self.tls.caBundleSecretRef)'
+                type: object
               engine:
                 default: Valkey
                 description: |-
@@ -1690,6 +1876,36 @@ spec:
                   - type
                   type: object
                 type: array
+              externalImport:
+                description: externalImport reports progress when seeding from an
+                  external source.
+                properties:
+                  lastSynced:
+                    description: lastSynced records the most recent successful sync
+                      timestamp.
+                    format: date-time
+                    type: string
+                  message:
+                    description: message contains additional diagnostic information.
+                    type: string
+                  mode:
+                    description: mode records the sync mode used for the import (Snapshot
+                      or Live).
+                    type: string
+                  source:
+                    description: source records the address of the external Redis/Valkey
+                      instance.
+                    type: string
+                  startedAt:
+                    description: startedAt records when the current import attempt
+                      began.
+                    format: date-time
+                    type: string
+                  state:
+                    description: state is a human-readable summary (e.g. Pending,
+                      InProgress, Completed, Failed).
+                    type: string
+                type: object
               healthGate:
                 description: healthGate summarizes disruption gating decisions derived
                   from conditions.

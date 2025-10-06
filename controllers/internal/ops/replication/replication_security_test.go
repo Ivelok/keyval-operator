@@ -191,6 +191,8 @@ func (c *capturingClient) Auth(context.Context, string, string) error {
 	return nil
 }
 
+func (c *capturingClient) DBSize(context.Context) (int64, error) { return 0, nil }
+
 func generateSelfSignedCAPEM(t *testing.T) []byte {
 	t.Helper()
 	key, err := rsa.GenerateKey(rand.Reader, 2048)

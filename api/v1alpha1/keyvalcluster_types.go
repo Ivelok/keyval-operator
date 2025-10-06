@@ -134,6 +134,10 @@ type KeyValClusterSpec struct {
 	// +optional
 	Security *SecuritySpec `json:"security,omitempty"`
 
+	// bootstrap configures optional data seeding before the cluster becomes primary.
+	// +optional
+	Bootstrap *BootstrapSpec `json:"bootstrap,omitempty"`
+
 	// topology configures how Redis and Sentinel pods are spread across the cluster.
 	// When omitted, the operator applies safe defaults that prefer even distribution across nodes
 	// while still allowing scheduling on single-node clusters.
@@ -185,6 +189,91 @@ type SecuritySpec struct {
 	// +optional
 	TLS *TLSSpec `json:"tls,omitempty"`
 }
+
+// BootstrapSpec defines bootstrap-time configuration.
+type BootstrapSpec struct {
+	// externalSource instructs the operator to import data from a remote Redis/Valkey deployment
+	// before promoting local pods to master.
+	// +optional
+	ExternalSource *ExternalSourceSpec `json:"externalSource,omitempty"`
+}
+
+// ExternalSourceSpec configures bootstrap import from an external Redis/Valkey instance.
+// +kubebuilder:validation:XValidation:rule="self.address != \"\"",message="address must be set"
+// +kubebuilder:validation:XValidation:rule="!(has(self.tls) && self.tls.enabled == true) || has(self.tls.caBundleSecretRef)",message="tls.caBundleSecretRef must be set when TLS is enabled"
+type ExternalSourceSpec struct {
+	// address is the Redis/Valkey endpoint to import data from. Supports redis:// and rediss:// URIs.
+	// +kubebuilder:validation:Pattern=`^(redis|rediss)://.+$`
+	Address string `json:"address"`
+
+	// auth references optional credentials used when connecting to the source instance.
+	// +optional
+	Auth *ExternalSourceAuthSpec `json:"auth,omitempty"`
+
+	// tls configures TLS settings for the connection.
+	// +optional
+	TLS *ExternalSourceTLSSpec `json:"tls,omitempty"`
+
+	// syncMode controls how the operator synchronises data from the external source.
+	// +kubebuilder:default=Snapshot
+	// +optional
+	SyncMode ExternalSourceSyncMode `json:"syncMode,omitempty"`
+
+	// abortIfExistingData stops the import if the local cluster already has keys.
+	// Defaults to true to avoid overwriting data accidentally.
+	// +kubebuilder:default=true
+	// +optional
+	AbortIfExistingData *bool `json:"abortIfExistingData,omitempty"`
+
+	// maxInitialSyncDuration bounds how long the operator waits for the initial data copy to complete.
+	// +kubebuilder:default="30m"
+	// +optional
+	MaxInitialSyncDuration *metav1.Duration `json:"maxInitialSyncDuration,omitempty"`
+}
+
+// ExternalSourceAuthSpec points to the secret data required to authenticate against the source cluster.
+type ExternalSourceAuthSpec struct {
+	// usernameSecretRef points to the secret containing the ACL username (optional).
+	// +optional
+	UsernameSecretRef *corev1.SecretKeySelector `json:"usernameSecretRef,omitempty"`
+
+	// passwordSecretRef points to the secret containing the ACL password/token (optional).
+	// +optional
+	PasswordSecretRef *corev1.SecretKeySelector `json:"passwordSecretRef,omitempty"`
+}
+
+// ExternalSourceTLSSpec configures TLS materials for connecting to the external source.
+type ExternalSourceTLSSpec struct {
+	// enabled toggles TLS for the remote connection. When using a rediss:// address, this is implied.
+	Enabled bool `json:"enabled"`
+
+	// caBundleSecretRef references the secret key containing the trusted CA bundle.
+	// +optional
+	CABundleSecretRef *corev1.SecretKeySelector `json:"caBundleSecretRef,omitempty"`
+
+	// clientCertSecretRef references the secret key containing the optional client certificate.
+	// +optional
+	ClientCertSecretRef *corev1.SecretKeySelector `json:"clientCertSecretRef,omitempty"`
+
+	// clientKeySecretRef references the secret key containing the optional client private key.
+	// +optional
+	ClientKeySecretRef *corev1.SecretKeySelector `json:"clientKeySecretRef,omitempty"`
+
+	// insecureSkipVerify disables server certificate verification (not recommended).
+	// +optional
+	InsecureSkipVerify bool `json:"insecureSkipVerify,omitempty"`
+}
+
+// ExternalSourceSyncMode enumerates the external import options.
+// +kubebuilder:validation:Enum=Snapshot;Live
+type ExternalSourceSyncMode string
+
+const (
+	// ExternalSourceSyncModeSnapshot copies data once and then breaks the link.
+	ExternalSourceSyncModeSnapshot ExternalSourceSyncMode = "Snapshot"
+	// ExternalSourceSyncModeLive keeps a temporary replica link until the operator cuts over.
+	ExternalSourceSyncModeLive ExternalSourceSyncMode = "Live"
+)
 
 // TopologySpec configures pod distribution mechanisms such as topology spread constraints and pod anti-affinity.
 type TopologySpec struct {
@@ -403,6 +492,10 @@ type KeyValClusterStatus struct {
 
 	// healthGate summarizes disruption gating decisions derived from conditions.
 	HealthGate *HealthGateStatus `json:"healthGate,omitempty"`
+
+	// externalImport reports progress when seeding from an external source.
+	// +optional
+	ExternalImport *ExternalImportStatus `json:"externalImport,omitempty"`
 }
 
 // RolesSource enumerates the source of truth used to derive master/replica roles.
@@ -424,6 +517,30 @@ type HealthGateStatus struct {
 	AllowDisruptions bool `json:"allowDisruptions"`
 }
 
+// ExternalImportStatus captures the observed external import state.
+type ExternalImportStatus struct {
+	// state is a human-readable summary (e.g. Pending, InProgress, Completed, Failed).
+	State string `json:"state,omitempty"`
+
+	// source records the address of the external Redis/Valkey instance.
+	Source string `json:"source,omitempty"`
+
+	// mode records the sync mode used for the import (Snapshot or Live).
+	Mode string `json:"mode,omitempty"`
+
+	// startedAt records when the current import attempt began.
+	// +optional
+	StartedAt *metav1.Time `json:"startedAt,omitempty"`
+
+	// lastSynced records the most recent successful sync timestamp.
+	// +optional
+	LastSynced *metav1.Time `json:"lastSynced,omitempty"`
+
+	// message contains additional diagnostic information.
+	// +optional
+	Message string `json:"message,omitempty"`
+}
+
 // ConditionType enumerates status condition identifiers maintained by the operator.
 type ConditionType string
 
@@ -438,6 +555,7 @@ const (
 	ConditionRuntimeConfigApplied ConditionType = "RuntimeConfigApplied"
 	ConditionReconciled           ConditionType = "Reconciled"
 	ConditionStorageCleanup       ConditionType = "StorageCleanup"
+	ConditionExternalImport       ConditionType = "ExternalImport"
 )
 
 // PodRole enumerates the role of a Pod within the KeyValCluster.
