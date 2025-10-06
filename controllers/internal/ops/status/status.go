@@ -28,16 +28,17 @@ type ConditionState struct {
 }
 
 type ClusterState struct {
-	Master        string
-	Pods          []corev1.Pod
-	Roles         map[string]keyvalv1alpha1.PodRole
-	SentinelPods  []corev1.Pod
-	Health        map[string]keyvalv1alpha1.PodHealth
-	LagSeconds    map[string]*int32
-	RolesSource   keyvalv1alpha1.RolesSource
-	RolesReason   string
-	RuntimeConfig *RuntimeCondition
-	Conditions    map[keyvalv1alpha1.ConditionType]*ConditionState
+	Master         string
+	Pods           []corev1.Pod
+	Roles          map[string]keyvalv1alpha1.PodRole
+	SentinelPods   []corev1.Pod
+	Health         map[string]keyvalv1alpha1.PodHealth
+	LagSeconds     map[string]*int32
+	RolesSource    keyvalv1alpha1.RolesSource
+	RolesReason    string
+	RuntimeConfig  *RuntimeCondition
+	Conditions     map[keyvalv1alpha1.ConditionType]*ConditionState
+	ExternalImport *keyvalv1alpha1.ExternalImportStatus
 }
 
 // RuntimeCondition captures the reconcile outcome for runtime configuration synchronization.
@@ -76,6 +77,13 @@ func ComputeStatus(cr *keyvalv1alpha1.KeyValCluster, st ClusterState) keyvalv1al
 
 	for _, p := range st.Pods {
 		r := st.Roles[p.Name]
+		if r == "" {
+			if st.Master != "" && p.Name == st.Master {
+				r = keyvalv1alpha1.PodRoleMaster
+			} else {
+				r = keyvalv1alpha1.PodRoleReplica
+			}
+		}
 		readyNow := runtime.IsPodReady(&p)
 		health := healthByName[p.Name]
 		if health == "" {
@@ -240,6 +248,12 @@ func ComputeStatus(cr *keyvalv1alpha1.KeyValCluster, st ClusterState) keyvalv1al
 	}
 	build(keyvalv1alpha1.ConditionBootstrapInProgress, bootstrapState)
 
+	externalState := ConditionState{Status: metav1.ConditionTrue, Reason: "Disabled", Message: "external import not configured"}
+	if override := getOverride(keyvalv1alpha1.ConditionExternalImport); override != nil {
+		externalState = *override
+	}
+	build(keyvalv1alpha1.ConditionExternalImport, externalState)
+
 	storageState := ConditionState{Status: metav1.ConditionTrue, Reason: "RetentionPolicy", Message: "PVC cleanup disabled; resources retained after deletion"}
 	if !core.HasPersistentData(cr) {
 		storageState = ConditionState{Status: metav1.ConditionTrue, Reason: "EphemeralStorage", Message: "Ephemeral storage configured; no PVC cleanup required"}
@@ -258,6 +272,10 @@ func ComputeStatus(cr *keyvalv1alpha1.KeyValCluster, st ClusterState) keyvalv1al
 		conds = append(conds, prev)
 	}
 
+	if st.ExternalImport != nil {
+		s.ExternalImport = st.ExternalImport.DeepCopy()
+	}
+
 	s.Conditions = conds
 	allow := conditionSatisfied(built[keyvalv1alpha1.ConditionAvailable], true) &&
 		conditionSatisfied(built[keyvalv1alpha1.ConditionSentinelQuorum], true) &&
@@ -265,7 +283,8 @@ func ComputeStatus(cr *keyvalv1alpha1.KeyValCluster, st ClusterState) keyvalv1al
 		conditionSatisfied(built[keyvalv1alpha1.ConditionFailoverInProgress], false) &&
 		conditionSatisfied(built[keyvalv1alpha1.ConditionDisruptionsPaused], false) &&
 		conditionSatisfied(built[keyvalv1alpha1.ConditionUpgradeInProgress], false) &&
-		conditionSatisfied(built[keyvalv1alpha1.ConditionBootstrapInProgress], false)
+		conditionSatisfied(built[keyvalv1alpha1.ConditionBootstrapInProgress], false) &&
+		conditionSatisfied(built[keyvalv1alpha1.ConditionExternalImport], true)
 
 	s.HealthGate = &keyvalv1alpha1.HealthGateStatus{AllowDisruptions: allow}
 	return s

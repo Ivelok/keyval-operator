@@ -185,7 +185,8 @@ func (c *stubRedisClient) ConfigSet(_ context.Context, key, value string) error 
 func (c *stubRedisClient) ConfigRewrite(context.Context) error        { return nil }
 func (c *stubRedisClient) Auth(context.Context, string, string) error { return nil }
 
-func (c *stubRedisClient) Close() error { return nil }
+func (c *stubRedisClient) Close() error                          { return nil }
+func (c *stubRedisClient) DBSize(context.Context) (int64, error) { return 0, nil }
 
 type stubSentinelFactory struct {
 	client *stubSentinelClient

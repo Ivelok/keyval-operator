@@ -1,0 +1,27 @@
+apiVersion: keyval.ivelok.io/v1alpha1
+kind: KeyValCluster
+metadata:
+  name: import-target
+  namespace: default
+spec:
+  mode: Standalone
+  image: valkey/valkey:7.2
+  redisReplicas: 1
+  bootstrap:
+    externalSource:
+      address: redis://import-source-master.default.svc:6379
+      syncMode: Snapshot
+      abortIfExistingData: true
+      # Optional:
+      # auth:
+      #   passwordSecretRef:
+      #     name: import-credentials
+      #     key: password
+      # tls:
+      #   enabled: true
+      #   caBundleSecretRef:
+      #     name: import-ca
+      #     key: ca.crt
+      #   insecureSkipVerify: false
+  storage:
+    type: Ephemeral

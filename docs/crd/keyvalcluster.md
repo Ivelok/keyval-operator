@@ -54,6 +54,14 @@
     - `disablePlaintext` (bool; default false) — sets `port 0`, leaving only `tls-port` active
 - With `security.auth` enabled, the operator renders `requirepass`, `masterauth`, `masteruser`, and Sentinel `auth-pass/auth-user`, and the ConfigMap hash includes the Secret resourceVersion.
 - With `security.tls` enabled, the configs add `tls-port`, `tls-{cert,key,ca-cert}-file`, and `tls-auth-clients`; the PodSpec mounts the Secret at `/tls` and turns on TLS for replication/Sentinel clients.
+- `bootstrap` (BootstrapSpec; optional)
+  - `externalSource` (ExternalSourceSpec; optional) — declarative seed from an existing Redis/Valkey deployment. When present, the operator connects to the remote endpoint before promoting local pods.
+    - `address` (string; required) — redis/rediss URI of the source (supports host:port and optional `/db`).
+    - `auth` (ExternalSourceAuthSpec; optional) — Secret references for ACL `usernameSecretRef` / `passwordSecretRef`. When omitted, the operator connects without authentication.
+    - `tls` (ExternalSourceTLSSpec; optional) — TLS for the outbound connection. `caBundleSecretRef` supplies the CA bundle; `client{Cert,Key}SecretRef` enable mutual TLS; `insecureSkipVerify` skips server validation (not recommended).
+    - `syncMode` (enum; default `Snapshot`) — `Snapshot` detaches once the replica is fully in sync; `Live` keeps the replica link active until you remove the `externalSource` block. While `Live` runs the controller reports `ExternalImport` with reason `Following` and aborts reconciliation after status updates to avoid promoting the local pods prematurely.
+    - `abortIfExistingData` (bool; default true) — refuse to attach when the local datastore already contains keys.
+    - `maxInitialSyncDuration` (duration; default 30m) — upper bound for the initial replication catch-up before the operator marks the import as failed.
 - `health` (HealthSpec; optional)
   - `replicationLagSecondsMax` (int; default 5) — maximum lag for the `ReplicationHealthy` condition
   - `failoverTimeoutSeconds` (int; default 20) — allowed failover window before the operator treats it as an incident
@@ -85,11 +93,17 @@
 - `roles` ([]PodRoleStatus)
   - `name` (string), `role` (`master|replica|sentinel`), `ready` (bool), `lastTransitionTime` (time)
 - `conditions` ([]Condition)
-  - `Reconciled`, `Available`, `SentinelQuorum`, `ReplicationHealthy`, `FailoverInProgress`, `DisruptionsPaused`, `UpgradeInProgress`, `BootstrapInProgress`, `RuntimeConfigApplied`, `StorageCleanup`
+  - `Reconciled`, `Available`, `SentinelQuorum`, `ReplicationHealthy`, `FailoverInProgress`, `DisruptionsPaused`, `UpgradeInProgress`, `BootstrapInProgress`, `ExternalImport`, `RuntimeConfigApplied`, `StorageCleanup`
   - `StorageCleanup` reports the PVC policy (`CleanupEnabled` / `RetentionPolicy` / `EphemeralStorage`) and the finalizer progress (`DeletingPVCs`, `PVCsDeleted`, `Timeout`).
   - `BootstrapInProgress=True` means a DR/bootstrap cycle is active: the master is re-elected (force-master → freshest PVC → seed), the Redis PDB switches to strict mode, `DisruptionsPaused=True`, and the flag clears only after `CKQUORUM` succeeds followed by sequential `SENTINEL RESET` operations.
 - `healthGate` (HealthGateStatus)
   - `allowDisruptions` (bool) — aggregated safety flag controlling voluntary evictions and updates
+- `externalImport` (ExternalImportStatus; optional)
+  - `mode` (string) — `Snapshot` or `Live` (mirrors `spec.bootstrap.externalSource.syncMode`).
+  - `state` (string) — `Pending`, `InProgress`, `Following`, `Completed`, or `Failed`.
+  - `source` (string) — address of the remote endpoint.
+  - `startedAt` / `lastSynced` (timestamps) — most recent import timeline.
+  - `message` (string) — human-readable progress/failure notes.
 
 **Validation Rules (OpenAPI/CEL)**
 - `mode` enum: `Standalone`, `Sentinel`
@@ -130,7 +144,7 @@
 - Sentinel StatefulSet: fields `spec.serviceName`, `spec.selector`, and `spec.volumeClaimTemplates` are immutable. Drift attempts trigger the `SentinelApplyImmutableField` event, set `Reconciled=False` with reason `ImmutableField`, and increment `keyval_operator_sentinel_apply_failures_total{reason="immutable_field"}`; other SSA errors are treated as transient and surface via `SentinelApplyFailed`.
 
 **Examples**
-- See `examples/standalone.yaml` and `examples/sentinel.yaml` for valid CRs.
+- See `examples/standalone.yaml`, `examples/sentinel.yaml`, and `examples/external-import.yaml` for valid CRs.
 
 **Kubebuilder Notes**
 - CRD ready for generation via `controller-gen` (validation tags and `XValidation` rules present).

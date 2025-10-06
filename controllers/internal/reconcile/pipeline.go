@@ -83,6 +83,7 @@ type State struct {
 	Sentinel            SentinelState
 	Status              StatusState
 	Disruption          DisruptionState
+	Import              ImportState
 	AbortDirective      *AbortDirective
 }
 
@@ -219,6 +220,11 @@ type DisruptionState struct {
 	AllowSentinel    bool
 	RedisMin         int32
 	SentinelMin      int32
+}
+
+// ImportState carries external import progress shared between phases.
+type ImportState struct {
+	Status *keyvalv1alpha1.ExternalImportStatus
 }
 
 // Pipeline wires controller inputs to the reconcile handler while preserving observability contracts.
