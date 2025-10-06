@@ -32,6 +32,7 @@ go.work.sum
 .idea/
 .vscode/
 .codex
+tasks/
 
 #artifacts
 test/e2e/artifacts/
