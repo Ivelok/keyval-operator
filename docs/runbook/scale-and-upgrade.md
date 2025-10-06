@@ -37,3 +37,4 @@ Escalate to platform engineering (`#keyval-operator` channel) if scaling or upgr
 
 ## Notes
 - When `KEEP_ARTIFACTS=1` is set, e2e tests save `artifacts/<cluster>-rolling-update.json` with a summary (duration, 5-minute threshold, list of pending/notReady pods). Use it for incident analysis and SLA tracking.
+
