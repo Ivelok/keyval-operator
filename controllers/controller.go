@@ -184,6 +184,9 @@ func (r *KeyValClusterReconciler) reconcileClusterImpl(ctx context.Context, stat
 	if err := phases.Workloads(ctx, state); err != nil {
 		return ctrl.Result{}, err
 	}
+	if err := phases.PodMetadata(ctx, state); err != nil {
+		return ctrl.Result{}, err
+	}
 	if err := phases.ExternalImport(ctx, state); err != nil {
 		if statusErr := phases.Status(ctx, &cr, state); statusErr != nil {
 			return ctrl.Result{}, statusErr

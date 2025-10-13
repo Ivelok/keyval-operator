@@ -13,6 +13,18 @@ import (
 
 const PodLabelPatchMaxAttempts = 3
 
+// CloneStringMap returns a shallow copy of the input map.
+func CloneStringMap(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+
 func RoleLabelConflictBackoff(attempt int) time.Duration {
 	switch {
 	case attempt <= 1:

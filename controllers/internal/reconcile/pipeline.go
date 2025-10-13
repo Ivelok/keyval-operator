@@ -62,29 +62,39 @@ type Dependencies struct {
 	TraceHook               TraceHook
 }
 
+// PodTemplateMetadata captures the template metadata used to reconcile existing pods.
+type PodTemplateMetadata struct {
+	DesiredLabels       map[string]string
+	PreviousLabels      map[string]string
+	DesiredAnnotations  map[string]string
+	PreviousAnnotations map[string]string
+}
+
 // State carries request-scoped context for the reconcile handler.
 type State struct {
-	Request             ctrl.Request
-	Logger              logging.Logger
-	Cluster             *keyvalv1alpha1.KeyValCluster
-	ResourceKey         string
-	Accumulator         *RequeueAccumulator
-	Dependencies        Dependencies
-	Security            SecurityState
-	Config              ConfigState
-	RedisStatefulSet    *appsv1.StatefulSet
-	SentinelStatefulSet *appsv1.StatefulSet
-	RedisPods           []corev1.Pod
-	SentinelPods        []corev1.Pod
-	StoragePlan         opstorage.ResizeResult
-	ConditionOverrides  map[keyvalv1alpha1.ConditionType]*opstatus.ConditionState
-	ApplyBackoff        func(time.Duration) time.Duration
-	Runtime             RuntimeState
-	Sentinel            SentinelState
-	Status              StatusState
-	Disruption          DisruptionState
-	Import              ImportState
-	AbortDirective      *AbortDirective
+	Request                  ctrl.Request
+	Logger                   logging.Logger
+	Cluster                  *keyvalv1alpha1.KeyValCluster
+	ResourceKey              string
+	Accumulator              *RequeueAccumulator
+	Dependencies             Dependencies
+	Security                 SecurityState
+	Config                   ConfigState
+	RedisStatefulSet         *appsv1.StatefulSet
+	SentinelStatefulSet      *appsv1.StatefulSet
+	RedisPods                []corev1.Pod
+	SentinelPods             []corev1.Pod
+	RedisTemplateMetadata    PodTemplateMetadata
+	SentinelTemplateMetadata PodTemplateMetadata
+	StoragePlan              opstorage.ResizeResult
+	ConditionOverrides       map[keyvalv1alpha1.ConditionType]*opstatus.ConditionState
+	ApplyBackoff             func(time.Duration) time.Duration
+	Runtime                  RuntimeState
+	Sentinel                 SentinelState
+	Status                   StatusState
+	Disruption               DisruptionState
+	Import                   ImportState
+	AbortDirective           *AbortDirective
 }
 
 // AbortDirective signals that reconciliation should skip remaining phases after status persistence.
