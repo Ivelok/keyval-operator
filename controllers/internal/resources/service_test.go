@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/utils/ptr"
 
 	keyvalv1alpha1 "github.com/ivelok/keyval-operator/api/v1alpha1"
 	"github.com/ivelok/keyval-operator/controllers/internal/core"
@@ -154,7 +155,42 @@ func TestHeadlessService_Defaults(t *testing.T) {
 	if !svc.Spec.PublishNotReadyAddresses {
 		t.Fatalf("expected publishNotReadyAddresses=true by default")
 	}
-	if svc.Spec.Ports[0].Port != 6379 {
-		t.Fatalf("expected default redis port, got %d", svc.Spec.Ports[0].Port)
+	if len(svc.Spec.Ports) != 2 {
+		t.Fatalf("expected redis and metrics ports, got %v", svc.Spec.Ports)
 	}
+	if !hasServicePort(svc.Spec.Ports, "redis", 6379) {
+		t.Fatalf("expected redis port 6379, ports=%v", svc.Spec.Ports)
+	}
+	if !hasServicePort(svc.Spec.Ports, "metrics", int(defaultMetricsPort)) {
+		t.Fatalf("expected metrics port %d, ports=%v", defaultMetricsPort, svc.Spec.Ports)
+	}
+}
+
+func TestHeadlessService_DisableMetrics(t *testing.T) {
+	t.Parallel()
+	cr := crBase("demo", keyvalv1alpha1.ModeStandalone)
+	cr.Spec.Metrics = &keyvalv1alpha1.MetricsSpec{Enabled: ptr.To(false)}
+	svc := HeadlessService(cr)
+	if len(svc.Spec.Ports) != 1 || svc.Spec.Ports[0].Name != "redis" {
+		t.Fatalf("expected only redis port when metrics disabled, ports=%v", svc.Spec.Ports)
+	}
+}
+
+func TestHeadlessService_CustomMetricsPort(t *testing.T) {
+	t.Parallel()
+	cr := crBase("demo", keyvalv1alpha1.ModeStandalone)
+	cr.Spec.Metrics = &keyvalv1alpha1.MetricsSpec{Port: 12345}
+	svc := HeadlessService(cr)
+	if !hasServicePort(svc.Spec.Ports, "metrics", 12345) {
+		t.Fatalf("expected metrics port override, ports=%v", svc.Spec.Ports)
+	}
+}
+
+func hasServicePort(ports []corev1.ServicePort, name string, port int) bool {
+	for _, p := range ports {
+		if p.Name == name && int(p.Port) == port {
+			return true
+		}
+	}
+	return false
 }

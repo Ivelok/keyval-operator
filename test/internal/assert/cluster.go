@@ -152,6 +152,68 @@ func RedisPodsImage(t *testing.T, h *harness.Harness, cluster *keyvalv1alpha1.Ke
 	}
 }
 
+// MetricsExporter validates that every redis pod exposes the metrics sidecar on the expected port.
+func MetricsExporter(t *testing.T, pods []corev1.Pod, expectedPort int32) {
+	t.Helper()
+	if expectedPort <= 0 {
+		t.Fatalf("expectedPort must be positive")
+	}
+	wantArg := fmt.Sprintf("--web.listen-address=:%d", expectedPort)
+	for i := range pods {
+		pod := pods[i]
+		var metrics *corev1.Container
+		for j := range pod.Spec.Containers {
+			c := &pod.Spec.Containers[j]
+			if c.Name == "metrics" {
+				metrics = c
+				break
+			}
+		}
+		if metrics == nil {
+			t.Fatalf("pod %s is missing metrics container", pod.Name)
+		}
+		if metrics.Image == "" {
+			t.Fatalf("pod %s metrics container has empty image", pod.Name)
+		}
+		if !hasPort(metrics.Ports, expectedPort) {
+			t.Fatalf("pod %s metrics container missing port %d", pod.Name, expectedPort)
+		}
+		if !containsArg(metrics.Args, wantArg) {
+			t.Fatalf("pod %s metrics args %v do not include %q", pod.Name, metrics.Args, wantArg)
+		}
+		if !hasRedisAddr(metrics.Args) {
+			t.Fatalf("pod %s metrics args %v missing --redis.addr", pod.Name, metrics.Args)
+		}
+	}
+}
+
+func hasPort(ports []corev1.ContainerPort, port int32) bool {
+	for _, p := range ports {
+		if p.Name == "metrics" && p.ContainerPort == port {
+			return true
+		}
+	}
+	return false
+}
+
+func containsArg(args []string, expected string) bool {
+	for _, a := range args {
+		if a == expected {
+			return true
+		}
+	}
+	return false
+}
+
+func hasRedisAddr(args []string) bool {
+	for _, a := range args {
+		if strings.HasPrefix(a, "--redis.addr=") {
+			return true
+		}
+	}
+	return false
+}
+
 // LogPodDistribution prints the pod-to-node mapping and aggregate placement.
 func LogPodDistribution(t *testing.T, h *harness.Harness, cluster *keyvalv1alpha1.KeyValCluster, timeout time.Duration) {
 	t.Helper()

@@ -97,6 +97,9 @@ examples:
         sentinelConfig:
           down-after-milliseconds: "5000"
           failover-timeout: "20000"
+        metrics:
+          enabled: true
+          port: 9121
     - name: kv-standalone
       namespace: ""
       spec:
@@ -113,6 +116,9 @@ examples:
           replicationLagSecondsMax: 5
           failoverTimeoutSeconds: 20
           minReplicasForSafety: 1
+        metrics:
+          enabled: true
+          port: 9121
 
 signing:
   cosign:

@@ -18,3 +18,10 @@ spec:
     type: ClusterIP
     ports:
       redis: 6379
+  metrics:
+    enabled: true # disable to remove the redis_exporter sidecar
+    port: 9121
+    resources:
+      requests:
+        cpu: 20m
+        memory: 64Mi

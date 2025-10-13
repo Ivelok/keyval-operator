@@ -40,6 +40,30 @@ kubectl -n keyval-operator-system port-forward deploy/keyval-operator-controller
 curl -s localhost:8080/metrics | grep keyval_
 ```
 
+### Redis Exporter Sidecar
+- `spec.metrics.enabled` (default) adds a `redis_exporter` sidecar to every Redis pod and publishes a `metrics` port on the headless service.
+- The sidecar scrapes `127.0.0.1:${REDIS_PORT}`. When Redis AUTH/TLS is active the exporter reuses the resolved Secret and mounts `/tls`, switching to `rediss://` with client certificates automatically.
+- Override the listening port with `spec.metrics.port`; the operator updates the container args (`--web.listen-address=:`), pod `containerPort`, and ServicePort together so hashes stay stable.
+- Prometheus Operator example:
+  ```yaml
+  apiVersion: monitoring.coreos.com/v1
+  kind: ServiceMonitor
+  metadata:
+    name: kv-redis-metrics
+  spec:
+    namespaceSelector:
+      matchNames:
+        - default
+    selector:
+      matchLabels:
+        app: demo-redis
+    endpoints:
+      - port: metrics
+        path: /metrics
+        scheme: http
+  ```
+  For TLS-enabled clusters set `scheme: https` and reference the Redis CA / client certificates via `tlsConfig.ca`, `cert`, and `key`.
+
 ## Logging
 The operator uses zap via controller-runtime. Flag `--zap-devel` controls verbosity and format:
 
@@ -72,7 +96,7 @@ The operator writes events to the `KeyValCluster` object. Inspect them via `kube
 ## Prometheus Operator Integration
 Examples live in `examples/observability/`:
 1. `servicemonitor.yaml` — scrape the controller metrics.
-2. `podmonitor.yaml` — scrape external exporters (e.g., redis-exporter).
+2. `podmonitor.yaml` — scrape external exporters (legacy deployments). Prefer a ServiceMonitor targeting the built-in `metrics` port when `spec.metrics.enabled`.
 
 ## Recommended Alerts
 - **ReconcileFailures:** `increase(keyval_reconcile_result_total{result="error"}[15m]) > 0`

@@ -19,6 +19,7 @@ const (
 	RuntimeConfigVolumeName                = "runtime-conf"
 	RedisContainerName                     = "redis"
 	SentinelContainerName                  = "sentinel"
+	MetricsContainerName                   = "metrics"
 	BootstrapInitContainerName             = "kv-bootstrap-role"
 	FinalizerName                          = "keyval.ivelok.io/finalizer"
 	AnnotationRestartFormerMaster          = "keyval.ivelok.io/restart-former-master"

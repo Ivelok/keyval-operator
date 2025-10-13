@@ -9,6 +9,9 @@ spec:
   - name: redis
     ports:
     - 6379
+  - name: metrics
+    ports:
+    - 9121
   initContainers:
   - name: kv-bootstrap-role
     ports: null

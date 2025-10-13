@@ -9,5 +9,7 @@ spec:
   ports:
   - name: redis
     port: 6379
+  - name: metrics
+    port: 9121
   selector:
   - app=demo-redis

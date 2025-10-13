@@ -105,6 +105,12 @@ type KeyValClusterSpec struct {
 	// +optional
 	ReplicasService *ServiceSpec `json:"replicasService,omitempty"`
 
+	// metrics configures the optional Redis metrics exporter sidecar and scrape endpoint.
+	// When omitted, metrics are enabled by default.
+	// +kubebuilder:default={enabled:true}
+	// +optional
+	Metrics *MetricsSpec `json:"metrics,omitempty"`
+
 	// sentinelPod allows customizing the sentinel Pod template.
 	// +optional
 	SentinelPod *SentinelPodSpec `json:"sentinelPod,omitempty"`
@@ -395,6 +401,29 @@ type StorageSpec struct {
 // +kubebuilder:validation:Type=string
 // +kubebuilder:validation:MinLength=1
 type resourceQuantity string
+
+// MetricsSpec configures the Redis metrics exporter sidecar.
+type MetricsSpec struct {
+	// enabled toggles the metrics exporter sidecar.
+	// +kubebuilder:default=true
+	// +optional
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// image overrides the exporter container image (default: ghcr.io/oliver006/redis_exporter:v1.75.0).
+	// +optional
+	Image string `json:"image,omitempty"`
+
+	// port is the HTTP listen port exposed by the exporter container.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=65535
+	// +kubebuilder:default=9121
+	// +optional
+	Port int32 `json:"port,omitempty"`
+
+	// resources configure resource requests/limits for the exporter container.
+	// +optional
+	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
+}
 
 // ServiceSpec configures Services managed by the operator.
 type ServiceSpec struct {
