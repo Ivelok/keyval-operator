@@ -10,6 +10,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
@@ -487,12 +488,28 @@ func TestExternalImportTimeout(t *testing.T) {
 	manager := cluster.NewManager(s.Harness)
 	ctx := s.Context()
 
+	const authPassword = "P@s$w0rd"
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: "import-auth", Namespace: ns},
-		StringData: map[string]string{"password": "P@s$w0rd"},
+		StringData: map[string]string{"password": authPassword},
 	}
 	if err := s.Harness.Client().Create(ctx, secret); err != nil {
-		t.Fatalf("create auth secret: %v", err)
+		if !apierrors.IsAlreadyExists(err) {
+			t.Fatalf("create auth secret: %v", err)
+		}
+		existing := &corev1.Secret{}
+		if err := s.Harness.Client().Get(ctx, types.NamespacedName{Name: secret.Name, Namespace: ns}, existing); err != nil {
+			t.Fatalf("get existing auth secret: %v", err)
+		}
+		if existing.Data == nil {
+			existing.Data = make(map[string][]byte, 1)
+		}
+		if string(existing.Data["password"]) != authPassword {
+			existing.Data["password"] = []byte(authPassword)
+			if err := s.Harness.Client().Update(ctx, existing); err != nil {
+				t.Fatalf("update auth secret: %v", err)
+			}
+		}
 	}
 	t.Cleanup(func() {
 		_ = s.Harness.Client().Delete(context.Background(), secret)

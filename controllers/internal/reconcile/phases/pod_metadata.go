@@ -14,6 +14,7 @@ import (
 	"github.com/ivelok/keyval-operator/controllers/internal/core"
 	opupdate "github.com/ivelok/keyval-operator/controllers/internal/ops/update"
 	"github.com/ivelok/keyval-operator/controllers/internal/reconcile"
+	"github.com/ivelok/keyval-operator/controllers/internal/resources"
 )
 
 // PodMetadata reconciles template-managed labels and annotations on existing pods.
@@ -51,6 +52,8 @@ func syncPodMetadata(ctx context.Context, state *reconcile.State, meta *reconcil
 
 	labelKeys := managedKeys(meta.PreviousLabels, meta.DesiredLabels)
 	annotationKeys := managedKeys(meta.PreviousAnnotations, meta.DesiredAnnotations)
+	delete(annotationKeys, resources.ConfigHashAnnotationKey)
+	delete(annotationKeys, resources.TLSSecretHashAnnotationKey)
 	delete(labelKeys, core.RoleLabelKey)
 
 	if len(labelKeys) == 0 && len(annotationKeys) == 0 {
