@@ -10,6 +10,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	ptr "k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	keyvalv1alpha1 "github.com/ivelok/keyval-operator/api/v1alpha1"
@@ -36,6 +37,7 @@ func (rejectingEvictor) Evict(context.Context, opeviction.Request) error {
 func TestPlanUpdates_OrdersByDescendingOrdinal(t *testing.T) {
 	t.Parallel()
 	cr := &keyvalv1alpha1.KeyValCluster{Spec: keyvalv1alpha1.KeyValClusterSpec{Mode: keyvalv1alpha1.ModeStandalone, Image: "valkey/valkey:7.2", RedisReplicas: 2}}
+	cr.Spec.Metrics = &keyvalv1alpha1.MetricsSpec{Enabled: ptr.To(false)}
 	ss := &appsv1.StatefulSet{Spec: appsv1.StatefulSetSpec{Template: corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{resources.ConfigHashAnnotationKey: "h1"}}}}}
 	pods := []corev1.Pod{
 		{ObjectMeta: metav1.ObjectMeta{Name: "demo-0", Namespace: "default", Annotations: map[string]string{resources.ConfigHashAnnotationKey: "old"}}, Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: core.RedisContainerName, Image: "valkey/valkey:7.1"}}}},
@@ -50,6 +52,7 @@ func TestPlanUpdates_OrdersByDescendingOrdinal(t *testing.T) {
 func TestPlanUpdates_ReasonsIncludeConfigAndImage(t *testing.T) {
 	t.Parallel()
 	cr := &keyvalv1alpha1.KeyValCluster{Spec: keyvalv1alpha1.KeyValClusterSpec{Mode: keyvalv1alpha1.ModeStandalone, Image: "valkey/valkey:7.2", RedisReplicas: 1}}
+	cr.Spec.Metrics = &keyvalv1alpha1.MetricsSpec{Enabled: ptr.To(false)}
 	ss := &appsv1.StatefulSet{Spec: appsv1.StatefulSetSpec{Template: corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{resources.ConfigHashAnnotationKey: "newh"}}}}}
 	pod := corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "demo-0", Annotations: map[string]string{resources.ConfigHashAnnotationKey: "old"}}, Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: core.RedisContainerName, Image: "valkey/valkey:7.1"}}}}
 	plan := opupdate.PlanUpdates(context.TODO(), cr, ss, []corev1.Pod{pod}, nil, nil)
@@ -62,6 +65,7 @@ func TestPlanUpdates_ReasonsIncludeConfigAndImage(t *testing.T) {
 func TestPlanUpdates_HealthReasonAdded(t *testing.T) {
 	t.Parallel()
 	cr := &keyvalv1alpha1.KeyValCluster{Spec: keyvalv1alpha1.KeyValClusterSpec{Mode: keyvalv1alpha1.ModeStandalone, Image: "valkey/valkey:7.2", RedisReplicas: 1}}
+	cr.Spec.Metrics = &keyvalv1alpha1.MetricsSpec{Enabled: ptr.To(false)}
 	ss := &appsv1.StatefulSet{Spec: appsv1.StatefulSetSpec{Template: corev1.PodTemplateSpec{}}}
 	pod := corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "demo-0"}}
 	health := map[string]keyvalv1alpha1.PodHealth{"demo-0": keyvalv1alpha1.PodHealthLagging}
@@ -81,6 +85,7 @@ func TestPlanUpdates_HealthReasonAdded(t *testing.T) {
 func TestPlanUpdates_ScaleDownTargetsHighestOrdinal(t *testing.T) {
 	t.Parallel()
 	cr := &keyvalv1alpha1.KeyValCluster{Spec: keyvalv1alpha1.KeyValClusterSpec{Mode: keyvalv1alpha1.ModeStandalone, Image: "valkey/valkey:7.2", RedisReplicas: 1}}
+	cr.Spec.Metrics = &keyvalv1alpha1.MetricsSpec{Enabled: ptr.To(false)}
 	ss := &appsv1.StatefulSet{Spec: appsv1.StatefulSetSpec{Template: corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{}}}}}
 	pods := []corev1.Pod{
 		{ObjectMeta: metav1.ObjectMeta{Name: "demo-0", Namespace: "default"}},
@@ -99,6 +104,7 @@ func TestPlanUpdates_ScaleDownTargetsHighestOrdinal(t *testing.T) {
 func TestPlanUpdates_DoesNotRestartReadyReplicaOnTransientDesync(t *testing.T) {
 	t.Parallel()
 	cr := &keyvalv1alpha1.KeyValCluster{Spec: keyvalv1alpha1.KeyValClusterSpec{Mode: keyvalv1alpha1.ModeStandalone, Image: "valkey/valkey:7.2", RedisReplicas: 2}}
+	cr.Spec.Metrics = &keyvalv1alpha1.MetricsSpec{Enabled: ptr.To(false)}
 	ss := &appsv1.StatefulSet{Spec: appsv1.StatefulSetSpec{Template: corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{resources.ConfigHashAnnotationKey: "h"}}}}}
 	pods := []corev1.Pod{
 		{ObjectMeta: metav1.ObjectMeta{Name: "demo-0", Namespace: "default", Annotations: map[string]string{resources.ConfigHashAnnotationKey: "h"}}, Status: corev1.PodStatus{Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}}},
@@ -114,6 +120,7 @@ func TestPlanUpdates_DoesNotRestartReadyReplicaOnTransientDesync(t *testing.T) {
 func TestPlanUpdates_DoesNotRestartOfflineNotReadyPod(t *testing.T) {
 	t.Parallel()
 	cr := &keyvalv1alpha1.KeyValCluster{Spec: keyvalv1alpha1.KeyValClusterSpec{Mode: keyvalv1alpha1.ModeStandalone, Image: "valkey/valkey:7.2", RedisReplicas: 1}}
+	cr.Spec.Metrics = &keyvalv1alpha1.MetricsSpec{Enabled: ptr.To(false)}
 	ss := &appsv1.StatefulSet{Spec: appsv1.StatefulSetSpec{Template: corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{resources.ConfigHashAnnotationKey: "h"}}}}}
 	pods := []corev1.Pod{
 		{ObjectMeta: metav1.ObjectMeta{Name: "demo-0", Namespace: "default", Annotations: map[string]string{resources.ConfigHashAnnotationKey: "h"}}, Status: corev1.PodStatus{}},

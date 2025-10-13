@@ -31,6 +31,13 @@
 - `sentinelResources` (corev1.ResourceRequirements; optional)
   - Requests/Limits for Sentinel Pods; defaults to 50m CPU / 128Mi memory requests when omitted
   - See `examples/sentinel.yaml` for a cluster that sets distinct Redis vs Sentinel requests
+- `metrics` (MetricsSpec; optional; default enabled)
+  - Adds a `redis_exporter` sidecar to each Redis Pod and exposes HTTP metrics on the headless Service (`<cr>-headless`) when enabled
+  - `enabled` (bool; default true) — disable to omit the exporter container and the `metrics` ServicePort
+  - `image` (string; optional; default `ghcr.io/oliver006/redis_exporter:v1.75.0`)
+  - `port` (integer; default 9121) — HTTP listen port for `/metrics`
+  - `resources` (corev1.ResourceRequirements; optional; default requests: `20m` CPU, `64Mi` memory)
+  - The exporter connects to `localhost`, reuses Redis AUTH credentials, and negotiates TLS/mTLS automatically when `spec.security` enables them
 - `storage` (StorageSpec; optional)
   - `type` enum: `Persistent` (default) or `Ephemeral`
   - `size` (string quantity; required if `Persistent`)

@@ -6,6 +6,7 @@ KeyVal Operator provides lifecycle management for Redis and Valkey clusters on K
 - Declarative management of standalone and Sentinel-backed Redis/Valkey deployments via the `KeyValCluster` CRD.
 - Idempotent reconciler with controlled failover, replica health evaluation, and disruption safety gates.
 - Dedicated metrics and events for observability, including scale/upgrade telemetry and SLA aggregation.
+- Built-in `redis_exporter` sidecar (enabled by default) that reuses Redis AUTH/TLS and exposes `/metrics` on the headless service.
 - Chaos and e2e test suites covering failover, storage, Sentinel quorum, and network degradation scenarios.
 - Helm chart packaging with configurable auth, TLS, storage, and health thresholds.
 

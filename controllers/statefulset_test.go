@@ -108,9 +108,20 @@ func TestDesiredStatefulSet_Golden_Sentinel(t *testing.T) {
 	if ss.Spec.UpdateStrategy.Type != appsv1.OnDeleteStatefulSetStrategyType {
 		t.Fatalf("expected OnDelete update strategy")
 	}
-	// Dedicated sentinel: no sidecar in Redis pods
-	if len(ss.Spec.Template.Spec.Containers) != 1 || ss.Spec.Template.Spec.Containers[0].Name != core.RedisContainerName {
-		t.Fatalf("expected only redis container, got: %v", ss.Spec.Template.Spec.Containers)
+	if len(ss.Spec.Template.Spec.Containers) != 2 {
+		t.Fatalf("expected redis + metrics containers, got: %v", ss.Spec.Template.Spec.Containers)
+	}
+	var hasRedis, hasMetrics bool
+	for _, c := range ss.Spec.Template.Spec.Containers {
+		if c.Name == core.RedisContainerName {
+			hasRedis = true
+		}
+		if c.Name == core.MetricsContainerName {
+			hasMetrics = true
+		}
+	}
+	if !hasRedis || !hasMetrics {
+		t.Fatalf("expected redis and metrics containers, got: %v", ss.Spec.Template.Spec.Containers)
 	}
 	y := mustYAML(t, toSSSnapshot(ss))
 	want := loadGolden(t, "testdata/sentinel_statefulset.yaml")

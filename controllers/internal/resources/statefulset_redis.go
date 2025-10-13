@@ -7,6 +7,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 
 	keyvalv1alpha1 "github.com/ivelok/keyval-operator/api/v1alpha1"
 	"github.com/ivelok/keyval-operator/controllers/internal/core"
@@ -129,6 +130,8 @@ func StatefulSet(cr *keyvalv1alpha1.KeyValCluster, configHash string, tlsHash st
 
 func buildPodSpec(cr *keyvalv1alpha1.KeyValCluster, sec *security.Settings) corev1.PodSpec {
 	rport, rportStr := core.RedisPort(cr)
+	mport, _ := metricsExporterPort(cr)
+	metricsOn := metricsEnabled(cr)
 	redisContainer := corev1.Container{
 		Name:    core.RedisContainerName,
 		Image:   core.ResolveImage(cr.Spec),
@@ -146,10 +149,14 @@ func buildPodSpec(cr *keyvalv1alpha1.KeyValCluster, sec *security.Settings) core
 	redisContainer.Env = append(redisContainer.Env, corev1.EnvVar{Name: "REDIS_PORT", Value: rportStr})
 	redisContainer.LivenessProbe = &corev1.Probe{ProbeHandler: corev1.ProbeHandler{Exec: &corev1.ExecAction{Command: []string{"sh", LivenessScriptPath}}}}
 	redisContainer.ReadinessProbe = &corev1.Probe{ProbeHandler: corev1.ProbeHandler{Exec: &corev1.ExecAction{Command: []string{"sh", ReadinessScriptPath}}}}
+	containers := []corev1.Container{redisContainer}
+	if metricsOn {
+		containers = append(containers, buildMetricsContainer(cr, sec, rportStr, mport))
+	}
 	init := bootstrapInitContainer(cr, rportStr)
 	spec := corev1.PodSpec{
 		InitContainers: []corev1.Container{init},
-		Containers:     []corev1.Container{redisContainer},
+		Containers:     containers,
 		Volumes: []corev1.Volume{
 			{Name: core.RuntimeConfigVolumeName, VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
 		},
@@ -221,6 +228,78 @@ func bootstrapInitContainer(cr *keyvalv1alpha1.KeyValCluster, redisPort string) 
 		},
 		SecurityContext: containerSecurityContext(false),
 	}
+}
+
+func buildMetricsContainer(cr *keyvalv1alpha1.KeyValCluster, sec *security.Settings, redisPort string, metricsPort int32) corev1.Container {
+	scheme := "redis"
+	if sec != nil && sec.TLS.Enabled {
+		scheme = "rediss"
+	}
+	args := []string{
+		fmt.Sprintf("--redis.addr=%s://127.0.0.1:%s", scheme, redisPort),
+		fmt.Sprintf("--web.listen-address=:%d", metricsPort),
+	}
+	envs := []corev1.EnvVar{
+		{Name: "REDIS_ADDR", Value: fmt.Sprintf("%s://127.0.0.1:%s", scheme, redisPort)},
+	}
+	user, password := security.ResolveAuth(cr, sec)
+	if sec != nil && sec.Auth.Enabled {
+		envs = append(envs, corev1.EnvVar{
+			Name: "REDIS_PASSWORD",
+			ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{
+				LocalObjectReference: corev1.LocalObjectReference{Name: sec.Auth.SecretName},
+				Key:                  sec.Auth.SecretKey,
+			}},
+		})
+		if sec.Auth.Username != "" {
+			envs = append(envs, corev1.EnvVar{Name: "REDIS_USER", Value: sec.Auth.Username})
+		}
+	} else {
+		if password != "" {
+			envs = append(envs, corev1.EnvVar{Name: "REDIS_PASSWORD", Value: password})
+		}
+		if user != "" {
+			envs = append(envs, corev1.EnvVar{Name: "REDIS_USER", Value: user})
+		}
+	}
+	if sec != nil && sec.TLS.Enabled {
+		envs = append(envs, corev1.EnvVar{Name: "REDIS_EXPORTER_TLS_CA_CERT_FILE", Value: path.Join(TLSMountPath, sec.TLS.CACertKey)})
+		if sec.TLS.RequireClientAuth {
+			envs = append(envs,
+				corev1.EnvVar{Name: "REDIS_EXPORTER_TLS_CLIENT_CERT_FILE", Value: path.Join(TLSMountPath, sec.TLS.CertKey)},
+				corev1.EnvVar{Name: "REDIS_EXPORTER_TLS_CLIENT_KEY_FILE", Value: path.Join(TLSMountPath, sec.TLS.KeyKey)},
+			)
+		}
+	}
+	metricsContainer := corev1.Container{
+		Name:            core.MetricsContainerName,
+		Image:           metricsExporterImage(cr),
+		Args:            args,
+		Ports:           []corev1.ContainerPort{{Name: "metrics", ContainerPort: metricsPort}},
+		Env:             envs,
+		Resources:       desiredMetricsResources(cr),
+		SecurityContext: containerSecurityContext(true),
+	}
+	if sec != nil && sec.TLS.Enabled {
+		metricsContainer.VolumeMounts = append(metricsContainer.VolumeMounts, corev1.VolumeMount{Name: TLSVolumeName, MountPath: TLSMountPath, ReadOnly: true})
+	}
+	readiness := &corev1.Probe{
+		ProbeHandler:        corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Path: "/metrics", Port: intstr.FromInt(int(metricsPort))}},
+		InitialDelaySeconds: 5,
+		TimeoutSeconds:      3,
+		PeriodSeconds:       15,
+		FailureThreshold:    3,
+	}
+	liveness := &corev1.Probe{
+		ProbeHandler:        corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Path: "/metrics", Port: intstr.FromInt(int(metricsPort))}},
+		InitialDelaySeconds: 15,
+		TimeoutSeconds:      3,
+		PeriodSeconds:       30,
+		FailureThreshold:    5,
+	}
+	metricsContainer.ReadinessProbe = readiness
+	metricsContainer.LivenessProbe = liveness
+	return metricsContainer
 }
 
 func redisAuthEnvs(sec *security.Settings) []corev1.EnvVar {

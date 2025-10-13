@@ -5,6 +5,7 @@ package update
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -120,6 +121,7 @@ func TestGracefulShutdownReplica(t *testing.T) {
 		assert.SentinelService(t, s.Harness, cr, 1*time.Minute)
 		assert.ReplicationHealthy(t, s.Harness, cr, 2*time.Minute)
 		pods := assert.RedisPodOrdinals(t, s.Harness, cr, int(cr.Spec.RedisReplicas))
+		assert.MetricsExporter(t, pods, 9121)
 		masterBefore = cr.Status.MasterPod
 		for _, pod := range pods {
 			if pod.Name != masterBefore {
@@ -199,6 +201,7 @@ func TestRollingUpgradeSentinelRedis(t *testing.T) {
 		upgradedImage = "redis:7.2-alpine"
 		configKey     = "maxmemory-policy"
 		configValue   = "volatile-lru"
+		metricsPortV2 = int32(10081)
 	)
 
 	s := suite.New(t)
@@ -235,6 +238,7 @@ func TestRollingUpgradeSentinelRedis(t *testing.T) {
 		assert.ReplicationHealthy(t, s.Harness, cr, 2*time.Minute)
 		assert.RedisPodsImage(t, s.Harness, cr, initialImage, 1*time.Minute)
 		pods := assert.RedisPodOrdinals(t, s.Harness, cr, int(cr.Spec.RedisReplicas))
+		assert.MetricsExporter(t, pods, 9121)
 		lastUIDs = podUIDMap(pods)
 	})
 
@@ -299,6 +303,48 @@ func TestRollingUpgradeSentinelRedis(t *testing.T) {
 			t.Logf("config update rotated %d pods", changes)
 		}
 		lastUIDs = newUIDs
+	})
+
+	s.Step("patch-metrics-port", func(ctx context.Context) {
+		patched := cr.DeepCopy()
+		if patched.Spec.Metrics == nil {
+			patched.Spec.Metrics = &keyvalv1alpha1.MetricsSpec{}
+		}
+		patched.Spec.Metrics.Port = metricsPortV2
+		if err := s.Harness.Client().Patch(ctx, patched, client.MergeFrom(cr)); err != nil {
+			t.Fatalf("patch metrics port: %v", err)
+		}
+		*cr = *patched
+	})
+
+	s.Step("wait-metrics-rolling-complete", func(ctx context.Context) {
+		updated := manager.WaitReady(ctx, cr, 6*time.Minute)
+		*cr = *updated
+		deadline := time.Now().Add(6 * time.Minute)
+		for {
+			if err := manager.Refresh(ctx, cr); err != nil {
+				t.Fatalf("refresh cluster after metrics update: %v", err)
+			}
+			pods, err := collectReadyRedisPods(ctx, s, cr)
+			if err == nil && metricsPortMatches(pods, metricsPortV2) {
+				newUIDs := podUIDMap(pods)
+				if changes := countUIDChanges(lastUIDs, newUIDs); changes == len(pods) {
+					assert.SentinelService(t, s.Harness, cr, 1*time.Minute)
+					assert.ReplicationHealthy(t, s.Harness, cr, 2*time.Minute)
+					assert.MetricsExporter(t, pods, metricsPortV2)
+					lastUIDs = newUIDs
+					return
+				}
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("metrics port change did not converge within deadline")
+			}
+			select {
+			case <-ctx.Done():
+				t.Fatalf("context cancelled while waiting for metrics port update: %v", ctx.Err())
+			case <-time.After(2 * time.Second):
+			}
+		}
 	})
 
 	s.Step("verify-config-applied", func(ctx context.Context) {
@@ -383,4 +429,80 @@ func waitMasterAlignment(t *testing.T, s *suite.Suite, cluster *keyvalv1alpha1.K
 	}); err != nil {
 		t.Fatalf("wait for master alignment: %v", err)
 	}
+}
+
+func collectReadyRedisPods(ctx context.Context, s *suite.Suite, cluster *keyvalv1alpha1.KeyValCluster) ([]corev1.Pod, error) {
+	var pods corev1.PodList
+	selector := labels.Set{"app": fmt.Sprintf("%s-redis", cluster.Name)}
+	if err := s.Harness.Client().List(ctx, &pods, client.InNamespace(cluster.Namespace), client.MatchingLabels(selector)); err != nil {
+		return nil, err
+	}
+	if len(pods.Items) != int(cluster.Spec.RedisReplicas) {
+		return nil, fmt.Errorf("expected %d redis pods, got %d", cluster.Spec.RedisReplicas, len(pods.Items))
+	}
+	items := append([]corev1.Pod(nil), pods.Items...)
+	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
+	for i := range items {
+		if !podReady(&items[i]) {
+			return nil, fmt.Errorf("pod %s is not ready", items[i].Name)
+		}
+	}
+	return items, nil
+}
+
+func podReady(pod *corev1.Pod) bool {
+	if pod == nil {
+		return false
+	}
+	for _, cond := range pod.Status.Conditions {
+		if cond.Type == corev1.PodReady && cond.Status == corev1.ConditionTrue {
+			return true
+		}
+	}
+	return false
+}
+
+func metricsPortMatches(pods []corev1.Pod, port int32) bool {
+	if port <= 0 {
+		return false
+	}
+	arg := fmt.Sprintf("--web.listen-address=:%d", port)
+	for i := range pods {
+		var metrics *corev1.Container
+		for j := range pods[i].Spec.Containers {
+			c := &pods[i].Spec.Containers[j]
+			if c.Name == "metrics" {
+				metrics = c
+				break
+			}
+		}
+		if metrics == nil {
+			return false
+		}
+		if !containerPortEquals(metrics.Ports, port) {
+			return false
+		}
+		if !argPresent(metrics.Args, arg) {
+			return false
+		}
+	}
+	return true
+}
+
+func containerPortEquals(ports []corev1.ContainerPort, want int32) bool {
+	for _, p := range ports {
+		if p.Name == "metrics" && p.ContainerPort == want {
+			return true
+		}
+	}
+	return false
+}
+
+func argPresent(args []string, want string) bool {
+	for _, a := range args {
+		if a == want {
+			return true
+		}
+	}
+	return false
 }

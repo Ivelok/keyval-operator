@@ -26,6 +26,13 @@ func HeadlessService(cr *keyvalv1alpha1.KeyValCluster) *corev1.Service {
 		svcLabels = mergeServiceLabels(labels, cr.Spec.Service.Labels)
 		annotations = copyStringMap(cr.Spec.Service.Annotations)
 	}
+	ports := []corev1.ServicePort{
+		{Name: "redis", Port: int32(rport), TargetPort: intstr.FromInt(rport)},
+	}
+	if metricsEnabled(cr) {
+		mport, _ := metricsExporterPort(cr)
+		ports = append(ports, corev1.ServicePort{Name: "metrics", Port: mport, TargetPort: intstr.FromInt(int(mport))})
+	}
 	return &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        name,
@@ -39,9 +46,7 @@ func HeadlessService(cr *keyvalv1alpha1.KeyValCluster) *corev1.Service {
 			Selector: map[string]string{
 				core.LabelAppKey: labels[core.LabelAppKey],
 			},
-			Ports: []corev1.ServicePort{
-				{Name: "redis", Port: int32(rport), TargetPort: intstr.FromInt(rport)},
-			},
+			Ports: ports,
 		},
 	}
 }

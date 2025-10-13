@@ -64,6 +64,13 @@ func PlanUpdates(_ context.Context, cr *keyvalv1alpha1.KeyValCluster, ss *appsv1
 		desiredTemplate = &ss.Spec.Template
 	}
 
+	desiredContainers := map[string]corev1.Container{}
+	if desiredTemplate != nil {
+		for _, c := range desiredTemplate.Spec.Containers {
+			desiredContainers[c.Name] = c
+		}
+	}
+
 	for _, p := range pods {
 		var rsn []string
 		if desiredHash != "" {
@@ -84,6 +91,10 @@ func PlanUpdates(_ context.Context, cr *keyvalv1alpha1.KeyValCluster, ss *appsv1
 				rsn = append(rsn, "tls-hash")
 			}
 		}
+		metricsEnabled := resources.MetricsEnabled(cr)
+		desiredMetrics, metricsInTemplate := desiredContainers[core.MetricsContainerName]
+		foundMetrics := false
+		var actualMetrics *corev1.Container
 		for _, c := range p.Spec.Containers {
 			switch c.Name {
 			case core.RedisContainerName:
@@ -102,6 +113,10 @@ func PlanUpdates(_ context.Context, cr *keyvalv1alpha1.KeyValCluster, ss *appsv1
 				if cr.Spec.Mode == keyvalv1alpha1.ModeSentinel && !eqResourceRequirements(c.Resources, desired) {
 					rsn = append(rsn, "resources:sentinel")
 				}
+			case core.MetricsContainerName:
+				foundMetrics = true
+				copy := c
+				actualMetrics = &copy
 			}
 		}
 		hasSidecar := false
@@ -144,6 +159,30 @@ func PlanUpdates(_ context.Context, cr *keyvalv1alpha1.KeyValCluster, ss *appsv1
 		if len(storage) > 0 {
 			if extra, ok := storage[p.Name]; ok && len(extra) > 0 {
 				rsn = appendUniqueReasons(rsn, extra...)
+			}
+		}
+		if hasRedis {
+			if metricsEnabled {
+				if !foundMetrics {
+					rsn = append(rsn, "metrics:missing")
+				} else if !metricsInTemplate {
+					rsn = append(rsn, "metrics:missing-template")
+				} else if actualMetrics != nil {
+					if actualMetrics.Image != desiredMetrics.Image {
+						rsn = append(rsn, "metrics:image")
+					}
+					if !equalContainerPorts(actualMetrics.Ports, desiredMetrics.Ports) {
+						rsn = append(rsn, "metrics:ports")
+					}
+					if !equalStringSlice(actualMetrics.Args, desiredMetrics.Args) {
+						rsn = append(rsn, "metrics:args")
+					}
+					if !eqResourceRequirements(actualMetrics.Resources, desiredMetrics.Resources) {
+						rsn = append(rsn, "resources:metrics")
+					}
+				}
+			} else if foundMetrics {
+				rsn = append(rsn, "metrics:present-when-disabled")
 			}
 		}
 		if len(rsn) > 0 {
@@ -332,6 +371,30 @@ func Execute(ctx context.Context, c client.Client, cr *keyvalv1alpha1.KeyValClus
 		return pod.Name, nil
 	}
 	return "", nil
+}
+
+func equalContainerPorts(a, b []corev1.ContainerPort) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].Name != b[i].Name || a[i].ContainerPort != b[i].ContainerPort {
+			return false
+		}
+	}
+	return true
+}
+
+func equalStringSlice(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func eqResourceRequirements(a, b corev1.ResourceRequirements) bool {
