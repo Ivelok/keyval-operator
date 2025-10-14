@@ -42,16 +42,17 @@ func Status(ctx context.Context, cr *keyvalv1alpha1.KeyValCluster, state *reconc
 	}
 
 	clusterState := opstatus.ClusterState{
-		Master:        runtimeState.Master,
-		Pods:          pods,
-		Roles:         roles,
-		SentinelPods:  sentinelPods,
-		Health:        healthStates,
-		LagSeconds:    lagSeconds,
-		RolesSource:   reconcile.EnsureSourceToRolesSource(runtimeState.Topology.Source),
-		RolesReason:   runtimeState.Topology.Reason,
-		RuntimeConfig: runtimeState.RuntimeCondition,
-		Conditions:    conditionOverrides,
+		Master:         runtimeState.Master,
+		Pods:           pods,
+		Roles:          roles,
+		SentinelPods:   sentinelPods,
+		Health:         healthStates,
+		LagSeconds:     lagSeconds,
+		RolesSource:    reconcile.EnsureSourceToRolesSource(runtimeState.Topology.Source),
+		RolesReason:    runtimeState.Topology.Reason,
+		RuntimeConfig:  runtimeState.RuntimeCondition,
+		Conditions:     conditionOverrides,
+		ExternalImport: state.Import.Status,
 	}
 
 	wantStatus := opstatus.ComputeStatus(cr, clusterState)

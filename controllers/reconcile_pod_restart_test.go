@@ -256,6 +256,7 @@ func (c *trackingClient) ConfigSet(ctx context.Context, parameter, value string)
 func (c *trackingClient) ConfigRewrite(ctx context.Context) error { return nil }
 
 func (c *trackingClient) Auth(context.Context, string, string) error { return nil }
+func (c *trackingClient) DBSize(context.Context) (int64, error)      { return 0, nil }
 
 // ensure trackingFactory satisfies ClientFactory.
 var _ ClientFactory = (*trackingFactory)(nil)

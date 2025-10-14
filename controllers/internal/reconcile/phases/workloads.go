@@ -53,13 +53,21 @@ func Workloads(ctx context.Context, state *reconcile.State) error {
 
 	overrides := state.EnsureConditionOverrides()
 
+	// Reset template metadata tracking for this reconcile cycle.
+	state.RedisTemplateMetadata = reconcile.PodTemplateMetadata{}
+	state.SentinelTemplateMetadata = reconcile.PodTemplateMetadata{}
+
 	// Ensure Redis StatefulSet via SSA.
 	ssDesired := resources.StatefulSet(cr, hash, tlsHash, &secSettings)
+	state.RedisTemplateMetadata.DesiredLabels = reconcile.CloneStringMap(ssDesired.Spec.Template.Labels)
+	state.RedisTemplateMetadata.DesiredAnnotations = reconcile.CloneStringMap(ssDesired.Spec.Template.Annotations)
 	var existingSS appsv1.StatefulSet
 	if err := deps.Client.Get(ctx, client.ObjectKey{Namespace: ssDesired.Namespace, Name: ssDesired.Name}, &existingSS); err == nil {
 		if len(existingSS.Spec.VolumeClaimTemplates) > 0 && len(ssDesired.Spec.VolumeClaimTemplates) > 0 {
 			ssDesired.Spec.VolumeClaimTemplates[0].Spec = existingSS.Spec.VolumeClaimTemplates[0].Spec
 		}
+		state.RedisTemplateMetadata.PreviousLabels = reconcile.CloneStringMap(existingSS.Spec.Template.Labels)
+		state.RedisTemplateMetadata.PreviousAnnotations = reconcile.CloneStringMap(existingSS.Spec.Template.Annotations)
 	} else if !apierrors.IsNotFound(err) {
 		return controllererrors.WrapTransient(fmt.Errorf("get statefulset: %w", err))
 	}
@@ -124,6 +132,15 @@ func Workloads(ctx context.Context, state *reconcile.State) error {
 	}
 
 	ssSent := resources.SentinelStatefulSet(cr, hash, tlsHash, &secSettings)
+	state.SentinelTemplateMetadata.DesiredLabels = reconcile.CloneStringMap(ssSent.Spec.Template.Labels)
+	state.SentinelTemplateMetadata.DesiredAnnotations = reconcile.CloneStringMap(ssSent.Spec.Template.Annotations)
+	var existingSentinel appsv1.StatefulSet
+	if err := deps.Client.Get(ctx, client.ObjectKey{Namespace: ssSent.Namespace, Name: ssSent.Name}, &existingSentinel); err == nil {
+		state.SentinelTemplateMetadata.PreviousLabels = reconcile.CloneStringMap(existingSentinel.Spec.Template.Labels)
+		state.SentinelTemplateMetadata.PreviousAnnotations = reconcile.CloneStringMap(existingSentinel.Spec.Template.Annotations)
+	} else if err != nil && !apierrors.IsNotFound(err) {
+		return controllererrors.WrapTransient(fmt.Errorf("get sentinel statefulset: %w", err))
+	}
 	ssSentApply := ssa.StatefulSet(ssSent)
 	if err := controllerutil.SetOwnerReference(cr, ssSentApply, deps.Scheme); err != nil {
 		return controllererrors.WrapTransient(fmt.Errorf("set owner on sentinel statefulset: %w", err))

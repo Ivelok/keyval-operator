@@ -44,6 +44,15 @@ Use this runbook when the default KeyVal Operator logs do not provide enough det
 - Debug mode increases log throughput (≈2–3×) and uses the human-readable zap console encoder. Plan additional log storage and consider filtering in your collector.
 - Info mode (Helm default) removes `logger.V(1)` lines and uses JSON encoding; this reduces log volume but hides the reconcilers' decision traces.
 
+## Escalation
+- Escalate to the observability on-call if enabling debug logs does not surface the needed signal or if the extra volume risks breaching centralized logging quotas. Provide the patched deployment manifest (or Helm diff), the last `kubectl logs` sample, and Loki/EFK ingestion rates.
+- In multi-tenant clusters, notify the platform lead before leaving the operator in debug mode longer than one business day.
+
+## Related Dashboards
+- Grafana: *KeyVal Operator / Logging* — correlates log volume (`container_log_entries_total`) with reconcile activity.
+- Grafana: *Logging Pipeline Health* — check forwarder backlog, ingestion latency, and quota usage when toggling verbosity.
+
 ## Related Documentation
 - [`docs/observability.md`](../observability.md#logging) — logging overview and signal interpretation.
 - [`charts/keyval-operator/values.yaml`](../../charts/keyval-operator/values.yaml) — Helm value `manager.logLevel`.
+

@@ -53,6 +53,7 @@ func (c *waitClient) ConfigGet(context.Context, string) (string, bool, error) { 
 func (c *waitClient) ConfigSet(context.Context, string, string) error         { return nil }
 func (c *waitClient) ConfigRewrite(context.Context) error                     { return nil }
 func (c *waitClient) Auth(context.Context, string, string) error              { return nil }
+func (c *waitClient) DBSize(context.Context) (int64, error)                   { return 0, nil }
 
 type waitFactory struct {
 	clients map[string]*waitClient

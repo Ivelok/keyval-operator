@@ -54,6 +54,35 @@ var (
 		},
 		[]string{"namespace", "cluster"},
 	)
+	externalImportAttempts = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "keyval_external_import_attempt_total",
+			Help: "Number of external import attempts started",
+		},
+		[]string{"namespace", "cluster", "mode"},
+	)
+	externalImportFailures = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "keyval_external_import_failure_total",
+			Help: "Number of external import attempts that failed",
+		},
+		[]string{"namespace", "cluster", "reason"},
+	)
+	externalImportSuccesses = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "keyval_external_import_success_total",
+			Help: "Number of external import attempts that completed successfully",
+		},
+		[]string{"namespace", "cluster", "mode"},
+	)
+	externalImportDuration = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "keyval_external_import_duration_seconds",
+			Help:    "Duration of external import operations in seconds",
+			Buckets: prometheus.DefBuckets,
+		},
+		[]string{"namespace", "cluster", "mode"},
+	)
 	replicationLag = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "keyval_operator_replication_lag_seconds",
@@ -353,6 +382,10 @@ func init() {
 		controllerQueueDepth,
 		masterCacheHits,
 		masterCacheMisses,
+		externalImportAttempts,
+		externalImportFailures,
+		externalImportSuccesses,
+		externalImportDuration,
 		replicationLag,
 		sentinelQuorumHealthy,
 		sentinelQuorumLossSince,
@@ -934,6 +967,57 @@ func IncScaleOperation(cr *keyvalv1alpha1.KeyValCluster, direction string) {
 		"cluster":   cr.Name,
 		"direction": direction,
 	}).Inc()
+}
+
+func IncExternalImportAttempt(cr *keyvalv1alpha1.KeyValCluster, mode string) {
+	if cr == nil {
+		return
+	}
+	if mode == "" {
+		mode = string(keyvalv1alpha1.ExternalSourceSyncModeSnapshot)
+	}
+	labels := labelsForCR(cr)
+	labels["mode"] = strings.ToLower(mode)
+	externalImportAttempts.With(labels).Inc()
+}
+
+func IncExternalImportFailure(cr *keyvalv1alpha1.KeyValCluster, reason string) {
+	if cr == nil {
+		return
+	}
+	if reason == "" {
+		reason = "unknown"
+	}
+	labels := labelsForCR(cr)
+	labels["reason"] = strings.ToLower(reason)
+	externalImportFailures.With(labels).Inc()
+}
+
+func IncExternalImportSuccess(cr *keyvalv1alpha1.KeyValCluster, mode string) {
+	if cr == nil {
+		return
+	}
+	if mode == "" {
+		mode = string(keyvalv1alpha1.ExternalSourceSyncModeSnapshot)
+	}
+	labels := labelsForCR(cr)
+	labels["mode"] = strings.ToLower(mode)
+	externalImportSuccesses.With(labels).Inc()
+}
+
+func ObserveExternalImportDuration(cr *keyvalv1alpha1.KeyValCluster, mode string, duration time.Duration) {
+	if cr == nil {
+		return
+	}
+	if duration < 0 {
+		duration = 0
+	}
+	if mode == "" {
+		mode = string(keyvalv1alpha1.ExternalSourceSyncModeSnapshot)
+	}
+	labels := labelsForCR(cr)
+	labels["mode"] = strings.ToLower(mode)
+	externalImportDuration.With(labels).Observe(duration.Seconds())
 }
 
 func IncSentinelReset(cr *keyvalv1alpha1.KeyValCluster) {

@@ -41,6 +41,7 @@ type Client interface {
 	ConfigSet(ctx context.Context, parameter, value string) error
 	ConfigRewrite(ctx context.Context) error
 	Auth(ctx context.Context, username, password string) error
+	DBSize(ctx context.Context) (int64, error)
 }
 
 // Factory provides a Client for a given Pod.

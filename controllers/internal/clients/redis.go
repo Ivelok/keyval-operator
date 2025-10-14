@@ -205,6 +205,19 @@ func (c *goRedisClient) NoOne(ctx context.Context) error {
 	})
 }
 
+func (c *goRedisClient) DBSize(ctx context.Context) (int64, error) {
+	var size int64
+	err := c.execDefault(ctx, "DBSIZE", c.cfg.OperationTimeout, func(inner context.Context) error {
+		res, execErr := c.rdb.DBSize(inner).Result()
+		if execErr != nil {
+			return execErr
+		}
+		size = res
+		return nil
+	})
+	return size, err
+}
+
 func (c *goRedisClient) ResetSentinel(ctx context.Context, cr *keyvalv1alpha1.KeyValCluster) error {
 	if cr == nil || cr.Spec.Mode != keyvalv1alpha1.ModeSentinel {
 		return nil

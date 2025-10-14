@@ -184,11 +184,28 @@ func (r *KeyValClusterReconciler) reconcileClusterImpl(ctx context.Context, stat
 	if err := phases.Workloads(ctx, state); err != nil {
 		return ctrl.Result{}, err
 	}
+	if err := phases.PodMetadata(ctx, state); err != nil {
+		return ctrl.Result{}, err
+	}
+	if err := phases.ExternalImport(ctx, state); err != nil {
+		if statusErr := phases.Status(ctx, &cr, state); statusErr != nil {
+			return ctrl.Result{}, statusErr
+		}
+		result := ctrl.Result{}
+		if delay := state.NextRequeue(); delay > 0 {
+			result.RequeueAfter = delay
+		}
+		return result, err
+	}
 	if state.AbortDirective != nil {
 		if err := phases.Status(ctx, &cr, state); err != nil {
 			return ctrl.Result{}, err
 		}
-		return ctrl.Result{}, state.AbortDirective.Err
+		result := ctrl.Result{}
+		if delay := state.NextRequeue(); delay > 0 {
+			result.RequeueAfter = delay
+		}
+		return result, state.AbortDirective.Err
 	}
 
 	pods := state.RedisPods

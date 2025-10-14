@@ -342,6 +342,36 @@ func EventBootstrapFinish(rec record.EventRecorder, cr *keyvalv1alpha1.KeyValClu
 	rec.Event(cr, corev1.EventTypeNormal, "BootstrapFinish", detail)
 }
 
+func EventExternalImportStarted(rec record.EventRecorder, cr *keyvalv1alpha1.KeyValCluster, detail string) {
+	if rec == nil || cr == nil {
+		return
+	}
+	if detail == "" {
+		detail = "external import started"
+	}
+	rec.Event(cr, corev1.EventTypeNormal, "ExternalImportStarted", detail)
+}
+
+func EventExternalImportCompleted(rec record.EventRecorder, cr *keyvalv1alpha1.KeyValCluster, detail string) {
+	if rec == nil || cr == nil {
+		return
+	}
+	if detail == "" {
+		detail = "external import completed"
+	}
+	rec.Event(cr, corev1.EventTypeNormal, "ExternalImportCompleted", detail)
+}
+
+func EventExternalImportFailed(rec record.EventRecorder, cr *keyvalv1alpha1.KeyValCluster, detail string) {
+	if rec == nil || cr == nil {
+		return
+	}
+	if detail == "" {
+		detail = "external import failed"
+	}
+	rec.Event(cr, corev1.EventTypeWarning, "ExternalImportFailed", detail)
+}
+
 func EventRollingStepBlocked(rec record.EventRecorder, cr *keyvalv1alpha1.KeyValCluster, reason, detail string) {
 	if rec == nil {
 		return

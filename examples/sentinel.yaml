@@ -40,3 +40,6 @@ spec:
     type: ClusterIP
     ports:
       sentinel: 26379
+  metrics:
+    enabled: true
+    port: 9121

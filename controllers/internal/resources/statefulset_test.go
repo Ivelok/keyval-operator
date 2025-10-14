@@ -1,9 +1,11 @@
 package resources
 
 import (
+	"fmt"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 
@@ -62,11 +64,19 @@ func TestStatefulSetIncludesBootstrapInitContainer(t *testing.T) {
 		t.Fatalf("expected runtime-conf volume on pod spec")
 	}
 
+	if len(ss.Spec.Template.Spec.Containers) != 2 {
+		t.Fatalf("expected redis + metrics containers, got %d", len(ss.Spec.Template.Spec.Containers))
+	}
+
 	var redisContainer *corev1.Container
+	var metricsContainer *corev1.Container
 	for i := range ss.Spec.Template.Spec.Containers {
-		if ss.Spec.Template.Spec.Containers[i].Name == core.RedisContainerName {
-			redisContainer = &ss.Spec.Template.Spec.Containers[i]
-			break
+		c := &ss.Spec.Template.Spec.Containers[i]
+		switch c.Name {
+		case core.RedisContainerName:
+			redisContainer = c
+		case core.MetricsContainerName:
+			metricsContainer = c
 		}
 	}
 	if redisContainer == nil {
@@ -96,6 +106,176 @@ func TestStatefulSetIncludesBootstrapInitContainer(t *testing.T) {
 	if spec := ss.Spec.Template.Spec; spec.TerminationGracePeriodSeconds == nil || *spec.TerminationGracePeriodSeconds != 25 {
 		t.Fatalf("expected terminationGracePeriodSeconds to be 25, got %v", spec.TerminationGracePeriodSeconds)
 	}
+	if metricsContainer == nil {
+		t.Fatalf("expected metrics container present")
+	}
+	if metricsContainer.Image != defaultMetricsImage {
+		t.Fatalf("expected default metrics image %q, got %q", defaultMetricsImage, metricsContainer.Image)
+	}
+	if len(metricsContainer.Ports) != 1 || metricsContainer.Ports[0].Name != "metrics" || metricsContainer.Ports[0].ContainerPort != defaultMetricsPort {
+		t.Fatalf("unexpected metrics container ports: %+v", metricsContainer.Ports)
+	}
+	if metricsContainer.ReadinessProbe == nil || metricsContainer.ReadinessProbe.HTTPGet == nil {
+		t.Fatalf("expected metrics readiness HTTP probe")
+	}
+	if metricsContainer.LivenessProbe == nil || metricsContainer.LivenessProbe.HTTPGet == nil {
+		t.Fatalf("expected metrics liveness HTTP probe")
+	}
+	if addr := envVal(metricsContainer.Env, "REDIS_ADDR"); addr != "redis://127.0.0.1:6379" {
+		t.Fatalf("expected REDIS_ADDR redis://127.0.0.1:6379, got %q", addr)
+	}
+	if envVal(metricsContainer.Env, "REDIS_PASSWORD") != "" {
+		t.Fatalf("did not expect REDIS_PASSWORD when auth disabled")
+	}
+	if !hasArg(metricsContainer.Args, fmt.Sprintf("--web.listen-address=:%d", defaultMetricsPort)) {
+		t.Fatalf("expected metrics args to include listen address, args=%v", metricsContainer.Args)
+	}
+	if !hasArg(metricsContainer.Args, "--redis.addr=redis://127.0.0.1:6379") {
+		t.Fatalf("expected metrics args to include redis addr, args=%v", metricsContainer.Args)
+	}
+	if cpu := metricsContainer.Resources.Requests[corev1.ResourceCPU]; !cpu.Equal(resource.MustParse("20m")) {
+		t.Fatalf("expected metrics cpu request 20m, got %s", cpu.String())
+	}
+	if mem := metricsContainer.Resources.Requests[corev1.ResourceMemory]; !mem.Equal(resource.MustParse("64Mi")) {
+		t.Fatalf("expected metrics memory request 64Mi, got %s", mem.String())
+	}
+	if metricsContainer.SecurityContext == nil || metricsContainer.SecurityContext.ReadOnlyRootFilesystem == nil || !*metricsContainer.SecurityContext.ReadOnlyRootFilesystem {
+		t.Fatalf("expected metrics container to enforce read-only root filesystem")
+	}
+}
+
+func TestStatefulSet_DisableMetricsExporter(t *testing.T) {
+	t.Parallel()
+	var replicas int32 = 1
+	cr := &keyvalv1alpha1.KeyValCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: "default"},
+		Spec: keyvalv1alpha1.KeyValClusterSpec{
+			Mode:          keyvalv1alpha1.ModeStandalone,
+			Image:         "valkey/valkey:7.2",
+			RedisReplicas: replicas,
+			Metrics:       &keyvalv1alpha1.MetricsSpec{Enabled: ptr.To(false)},
+		},
+	}
+
+	ss := StatefulSet(cr, "hash", "", &security.Settings{})
+	for _, c := range ss.Spec.Template.Spec.Containers {
+		if c.Name == core.MetricsContainerName {
+			t.Fatalf("expected metrics container disabled")
+		}
+	}
+	if len(ss.Spec.Template.Spec.Containers) != 1 {
+		t.Fatalf("expected single redis container when metrics disabled, got %d", len(ss.Spec.Template.Spec.Containers))
+	}
+}
+
+func TestMetricsContainer_ConfiguresTLSAndAuth(t *testing.T) {
+	t.Parallel()
+	cr := crBase("secure", keyvalv1alpha1.ModeStandalone)
+	cr.Spec.Metrics = &keyvalv1alpha1.MetricsSpec{}
+	sec := &security.Settings{
+		Auth: security.AuthSettings{
+			Enabled:    true,
+			Username:   "ops",
+			SecretName: "redis-auth",
+			SecretKey:  "password",
+		},
+		TLS: security.TLSSettings{
+			Enabled:           true,
+			SecretName:        "redis-tls",
+			CACertKey:         "ca.crt",
+			CertKey:           "tls.crt",
+			KeyKey:            "tls.key",
+			RequireClientAuth: true,
+		},
+	}
+
+	ss := StatefulSet(cr, "hash", "tls", sec)
+	var metricsContainer *corev1.Container
+	for i := range ss.Spec.Template.Spec.Containers {
+		c := &ss.Spec.Template.Spec.Containers[i]
+		if c.Name == core.MetricsContainerName {
+			metricsContainer = c
+			break
+		}
+	}
+	if metricsContainer == nil {
+		t.Fatalf("expected metrics container present")
+	}
+	if addr := envVal(metricsContainer.Env, "REDIS_ADDR"); addr != "rediss://127.0.0.1:6379" {
+		t.Fatalf("expected REDIS_ADDR rediss scheme, got %q", addr)
+	}
+	if !hasArg(metricsContainer.Args, "--redis.addr=rediss://127.0.0.1:6379") {
+		t.Fatalf("expected metrics args to include rediss addr, args=%v", metricsContainer.Args)
+	}
+	passEnv := envVar(metricsContainer.Env, "REDIS_PASSWORD")
+	if passEnv == nil || passEnv.ValueFrom == nil || passEnv.ValueFrom.SecretKeyRef == nil {
+		t.Fatalf("expected REDIS_PASSWORD sourced from secret")
+	}
+	if ref := passEnv.ValueFrom.SecretKeyRef; ref.Name != "redis-auth" || ref.Key != "password" {
+		t.Fatalf("unexpected secret ref for REDIS_PASSWORD: %+v", ref)
+	}
+	if envVal(metricsContainer.Env, "REDIS_USER") != "ops" {
+		t.Fatalf("expected REDIS_USER env")
+	}
+	if ca := envVal(metricsContainer.Env, "REDIS_EXPORTER_TLS_CA_CERT_FILE"); ca != TLSMountPath+"/ca.crt" {
+		t.Fatalf("expected CA env path, got %q", ca)
+	}
+	if cert := envVal(metricsContainer.Env, "REDIS_EXPORTER_TLS_CLIENT_CERT_FILE"); cert != TLSMountPath+"/tls.crt" {
+		t.Fatalf("expected client cert env, got %q", cert)
+	}
+	if key := envVal(metricsContainer.Env, "REDIS_EXPORTER_TLS_CLIENT_KEY_FILE"); key != TLSMountPath+"/tls.key" {
+		t.Fatalf("expected client key env, got %q", key)
+	}
+	if !hasMount(metricsContainer.VolumeMounts, TLSVolumeName, TLSMountPath) {
+		t.Fatalf("expected tls volume mount on metrics container")
+	}
+}
+
+func TestMetricsContainer_CustomPort(t *testing.T) {
+	t.Parallel()
+	cr := crBase("demo", keyvalv1alpha1.ModeStandalone)
+	cr.Spec.Metrics = &keyvalv1alpha1.MetricsSpec{Port: 10001}
+	ss := StatefulSet(cr, "cfg", "", &security.Settings{})
+	var metricsContainer *corev1.Container
+	for i := range ss.Spec.Template.Spec.Containers {
+		if ss.Spec.Template.Spec.Containers[i].Name == core.MetricsContainerName {
+			metricsContainer = &ss.Spec.Template.Spec.Containers[i]
+			break
+		}
+	}
+	if metricsContainer == nil {
+		t.Fatalf("expected metrics container present")
+	}
+	if len(metricsContainer.Ports) != 1 || metricsContainer.Ports[0].ContainerPort != 10001 {
+		t.Fatalf("expected container port override, ports=%v", metricsContainer.Ports)
+	}
+	if !hasArg(metricsContainer.Args, "--web.listen-address=:10001") {
+		t.Fatalf("expected listen address override, args=%v", metricsContainer.Args)
+	}
+}
+
+func TestMetricsContainer_UsesRedisConfigAuth(t *testing.T) {
+	t.Parallel()
+	cr := crBase("legacy", keyvalv1alpha1.ModeStandalone)
+	cr.Spec.RedisConfig = map[string]string{"requirepass": "legacy-pass"}
+	ss := StatefulSet(cr, "cfg", "", &security.Settings{})
+	var metricsContainer *corev1.Container
+	for i := range ss.Spec.Template.Spec.Containers {
+		if ss.Spec.Template.Spec.Containers[i].Name == core.MetricsContainerName {
+			metricsContainer = &ss.Spec.Template.Spec.Containers[i]
+			break
+		}
+	}
+	if metricsContainer == nil {
+		t.Fatalf("expected metrics container present")
+	}
+	passEnv := envVar(metricsContainer.Env, "REDIS_PASSWORD")
+	if passEnv == nil || passEnv.Value != "legacy-pass" {
+		t.Fatalf("expected REDIS_PASSWORD inline value from redisConfig, got %#v", passEnv)
+	}
+	if passEnv.ValueFrom != nil {
+		t.Fatalf("expected inline password value, not secret ref")
+	}
 }
 
 func envVal(env []corev1.EnvVar, name string) string {
@@ -123,6 +303,24 @@ func hasVolume(vols []corev1.Volume, name string) bool {
 		}
 	}
 	return false
+}
+
+func hasArg(args []string, expected string) bool {
+	for _, a := range args {
+		if a == expected {
+			return true
+		}
+	}
+	return false
+}
+
+func envVar(env []corev1.EnvVar, name string) *corev1.EnvVar {
+	for i := range env {
+		if env[i].Name == name {
+			return &env[i]
+		}
+	}
+	return nil
 }
 
 func TestStatefulSetTopologyDefaults(t *testing.T) {

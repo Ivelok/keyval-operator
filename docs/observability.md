@@ -23,6 +23,9 @@ The controller exposes metrics on `:8080/metrics` (deployment `keyval-operator-c
 | `keyval_operator_failover_decisions_total{namespace,cluster,source}` | Counter | Source of leader decisions (`sentinel|probe|forced`); highlights non-Sentinel fallbacks. |
 | `keyval_failover_triggered_total{namespace,cluster,type}` / `keyval_failover_completed_total{namespace,cluster}` | Counter | Controlled failovers triggered/completed (`type=manual|automatic|forced`). |
 | `keyval_bootstrap_attempt_total{namespace,cluster,mode}` / `keyval_bootstrap_failure_total{namespace,cluster}` | Counter | Bootstrap attempts/failures (`mode=standalone|sentinel`). |
+| `keyval_external_import_attempt_total{namespace,cluster,mode}` / `keyval_external_import_success_total{namespace,cluster,mode}` | Counter | External import attempts and successful completions (mode = snapshot/live). |
+| `keyval_external_import_failure_total{namespace,cluster,reason}` | Counter | External import failures classified by reason (`target_not_empty`, `timeout`, `source_unreachable`, ...). |
+| `keyval_external_import_duration_seconds{namespace,cluster,mode}` | Histogram | Time spent waiting for external import to finish. |
 | `keyval_runtime_config_applied_total{namespace,cluster,component}` / `keyval_runtime_config_failed_total{…}` | Counter | Runtime config application results (`component=redis|sentinel`). |
 | `keyval_operator_sentinel_quorum_healthy{namespace,cluster}` | Gauge | Result of `CKQUORUM` (1 = quorum present). |
 | `keyval_operator_sentinel_ready_members{namespace,cluster}` | Gauge | Number of Ready Sentinel pods. |
@@ -36,6 +39,30 @@ Local verification:
 kubectl -n keyval-operator-system port-forward deploy/keyval-operator-controller-manager 8080:8080
 curl -s localhost:8080/metrics | grep keyval_
 ```
+
+### Redis Exporter Sidecar
+- `spec.metrics.enabled` (default) adds a `redis_exporter` sidecar to every Redis pod and publishes a `metrics` port on the headless service.
+- The sidecar scrapes `127.0.0.1:${REDIS_PORT}`. When Redis AUTH/TLS is active the exporter reuses the resolved Secret and mounts `/tls`, switching to `rediss://` with client certificates automatically.
+- Override the listening port with `spec.metrics.port`; the operator updates the container args (`--web.listen-address=:`), pod `containerPort`, and ServicePort together so hashes stay stable.
+- Prometheus Operator example:
+  ```yaml
+  apiVersion: monitoring.coreos.com/v1
+  kind: ServiceMonitor
+  metadata:
+    name: kv-redis-metrics
+  spec:
+    namespaceSelector:
+      matchNames:
+        - default
+    selector:
+      matchLabels:
+        app: demo-redis
+    endpoints:
+      - port: metrics
+        path: /metrics
+        scheme: http
+  ```
+  For TLS-enabled clusters set `scheme: https` and reference the Redis CA / client certificates via `tlsConfig.ca`, `cert`, and `key`.
 
 ## Logging
 The operator uses zap via controller-runtime. Flag `--zap-devel` controls verbosity and format:
@@ -53,6 +80,7 @@ The operator writes events to the `KeyValCluster` object. Inspect them via `kube
 | Reason | Type | Description |
 |--------|------|-------------|
 | `BootstrapStart` / `BootstrapFinish` | Normal | Bootstrap start/end (DR, Sentinel, TLS). Ensure Sentinel+TLS SLA ≤150 s between the two events. |
+| `ExternalImportStarted` / `ExternalImportCompleted` / `ExternalImportFailed` | Normal / Normal / Warning | External data import lifecycle when `spec.bootstrap.externalSource` is set. `Completed`/`Failed` align with the `ExternalImport` condition; `Following` indicates `syncMode=Live` is keeping the replica link active until cutover. |
 | `SentinelQuorumLost` / `SentinelQuorumRestored` | Warning / Normal | Sentinel quorum status (`CKQUORUM`). |
 | `StartFailover` | Normal | Controlled `SENTINEL FAILOVER` invocation with type/master details. |
 | `FailoverTriggered` / `FailoverCompleted` | Normal | Failover trigger and completion; `FailoverCompleted` becomes `Warning` on failure. |
@@ -68,7 +96,7 @@ The operator writes events to the `KeyValCluster` object. Inspect them via `kube
 ## Prometheus Operator Integration
 Examples live in `examples/observability/`:
 1. `servicemonitor.yaml` — scrape the controller metrics.
-2. `podmonitor.yaml` — scrape external exporters (e.g., redis-exporter).
+2. `podmonitor.yaml` — scrape external exporters (legacy deployments). Prefer a ServiceMonitor targeting the built-in `metrics` port when `spec.metrics.enabled`.
 
 ## Recommended Alerts
 - **ReconcileFailures:** `increase(keyval_reconcile_result_total{result="error"}[15m]) > 0`
