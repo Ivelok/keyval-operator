@@ -13,13 +13,13 @@ The release workflow publishes the chart as an OCI artifact. Authenticate (if re
 
 ```bash
 helm registry login ghcr.io -u <gh-username>
-helm pull oci://ghcr.io/ivelok/keyval-operator/keyval-operator --version <version> --untar
+helm pull oci://ghcr.io/ivelok/keyval-operator/keyval-operator --version 0.1.1 --untar
 ```
 
 Alternatively, package the chart locally during development:
 
 ```bash
-make helm-package CHART_VERSION=0.1.0
+make helm-package CHART_VERSION=0.1.1
 ```
 
 ## 2. Install the Operator
@@ -29,7 +29,7 @@ Install the chart into the `keyval-operator-system` namespace (create it if abse
 helm install keyval-operator oci://ghcr.io/ivelok/keyval-operator/keyval-operator \
   --namespace keyval-operator-system \
   --create-namespace \
-  --version <version>
+  --version 0.1.1
 ```
 
 Verify deployment:

@@ -33,12 +33,27 @@ Reconcile concurrency and Kubernetes API rate limits are derived automatically f
 Updating the ConfigMap requires restarting the `keyval-operator-controller-manager` Deployment (`make restart` or `kubectl -n keyval-operator-system rollout restart deploy/keyval-operator-controller-manager`).
 
 ## Installation (Helm)
+The chart is published as an OCI artifact in GitHub Container Registry (GHCR). Helm does not support `helm repo add` for OCI sources, so use the OCI workflow directly.
+
+### Install from GHCR
 ```bash
-helm repo add keyval-operator oci://ghcr.io/ivelok/keyval-operator
-helm install keyval-operator keyval-operator/keyval-operator \
+# (Optional) authenticate if the GHCR repository is private
+echo "$GITHUB_PAT" | helm registry login ghcr.io --username <github-username> --password-stdin
+
+helm install keyval-operator oci://ghcr.io/ivelok/keyval-operator/keyval-operator \
   --namespace keyval-operator-system --create-namespace \
-  --version <version>
+  --version 0.1.1
 ```
+
+You can also download the chart locally with `helm pull oci://ghcr.io/ivelok/keyval-operator/keyval-operator --version 0.1.1`.
+
+### Publish a new chart version
+```bash
+helm package charts/keyval-operator
+helm push keyval-operator-0.1.1.tgz oci://ghcr.io/ivelok/keyval-operator
+```
+
+Bump `version` and `appVersion` in [`charts/keyval-operator/Chart.yaml`](charts/keyval-operator/Chart.yaml) before packaging.
 
 Key values (see [`charts/keyval-operator/values.yaml`](charts/keyval-operator/values.yaml)):
 
