@@ -3,7 +3,11 @@
 package cluster
 
 import (
+	"crypto/sha1"
 	"fmt"
+	"regexp"
+	"strings"
+	"testing"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -40,6 +44,13 @@ func (b *Builder) WithName(name string) *Builder {
 		name = fmt.Sprintf("tests-%d", time.Now().UnixNano())
 	}
 	b.cluster.Name = name
+	return b
+}
+
+// WithNameForTest derives a DNS-1123 compatible name using the provided base and test identifier.
+// This helps avoid cross-test collisions when suites run in parallel.
+func (b *Builder) WithNameForTest(tb testing.TB, base string) *Builder {
+	b.cluster.Name = uniqueTestName(tb, base)
 	return b
 }
 
@@ -110,6 +121,52 @@ func (b *Builder) Build() *keyvalv1alpha1.KeyValCluster {
 	}
 	copy := b.cluster.DeepCopy()
 	return copy
+}
+
+var dns1123Regexp = regexp.MustCompile("[^a-z0-9-]")
+
+func uniqueTestName(tb testing.TB, base string) string {
+	name := sanitizeName(base)
+	if tb == nil {
+		if name == "" {
+			return fmt.Sprintf("tests-%d", time.Now().UnixNano())
+		}
+		if len(name) > 63 {
+			name = strings.TrimRight(name[:63], "-")
+		}
+		if name == "" {
+			return "tests"
+		}
+		return name
+	}
+	suffix := shortHash(tb.Name())
+	if suffix == "" {
+		suffix = "t"
+	}
+	maxBaseLen := 63 - len(suffix) - 1
+	if maxBaseLen < 1 {
+		maxBaseLen = 1
+	}
+	if len(name) > maxBaseLen {
+		name = name[:maxBaseLen]
+	}
+	name = strings.Trim(name, "-")
+	if name == "" {
+		name = "tests"
+	}
+	return fmt.Sprintf("%s-%s", name, suffix)
+}
+
+func sanitizeName(base string) string {
+	trimmed := strings.Trim(strings.ToLower(base), " \t\n-_")
+	trimmed = dns1123Regexp.ReplaceAllString(trimmed, "-")
+	trimmed = strings.Trim(trimmed, "-")
+	return trimmed
+}
+
+func shortHash(input string) string {
+	sum := sha1.Sum([]byte(input))
+	return fmt.Sprintf("%x", sum[:3])
 }
 
 func metav1Metadata(namespace string) metav1.ObjectMeta {

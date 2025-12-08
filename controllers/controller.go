@@ -563,6 +563,12 @@ func (r *KeyValClusterReconciler) reconcileClusterImpl(ctx context.Context, stat
 				}
 			}
 		}
+		// No eviction occurred even though a plan exists (likely waiting for health gate or replicas to recover).
+		// Requeue with backoff instead of falling through silently so we retry once conditions improve.
+		delay := r.applyBackoffDelay(&cr, resourceKey, 5*time.Second)
+		logger.V(1).Info("update plan pending but no pods evicted; will retry", "pending", plan.PodNames, "after", delay)
+		res = ctrl.Result{RequeueAfter: delay}
+		return res, nil
 	} else {
 		opobs.SetUpdateInProgress(&cr, false)
 		if cleared, prevReason, err := clearUpdateBlockedAnnotation(ctx, r.Client, &cr); err != nil {

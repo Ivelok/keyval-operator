@@ -37,12 +37,22 @@ func Retry(ctx context.Context, attempts int, bo Backoff, fn func(attempt int) e
 	}
 	if bo.Initial <= 0 {
 		bo.Initial = 50 * time.Millisecond
+	} else if bo.Initial < time.Millisecond {
+		bo.Initial = time.Millisecond
 	}
 	if bo.Factor < 1.0 {
 		bo.Factor = 2.0
 	}
 	if bo.Max <= 0 {
 		bo.Max = 2 * time.Second
+	} else if bo.Max < bo.Initial {
+		bo.Max = bo.Initial
+	}
+	if bo.Jitter < 0 {
+		bo.Jitter = 0
+	}
+	if bo.Jitter > 1 {
+		bo.Jitter = 1
 	}
 	var err error
 	delay := bo.Initial
@@ -64,6 +74,9 @@ func Retry(ctx context.Context, attempts int, bo Backoff, fn func(attempt int) e
 			frac := (sample*2 - 1) * bo.Jitter
 			d = time.Duration(float64(d) * (1 + frac))
 		}
+		if d < time.Millisecond {
+			d = time.Millisecond
+		}
 		timer := time.NewTimer(d)
 		select {
 		case <-ctx.Done():
@@ -77,6 +90,9 @@ func Retry(ctx context.Context, attempts int, bo Backoff, fn func(attempt int) e
 		}
 		if next < 0 || next > time.Duration(math.MaxInt64) {
 			next = bo.Max
+		}
+		if next < time.Millisecond {
+			next = time.Millisecond
 		}
 		delay = next
 	}

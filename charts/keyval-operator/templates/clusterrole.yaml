@@ -28,6 +28,12 @@ rules:
       - pods/eviction
     verbs:
       - create
+  # Also allow policy/v1 Eviction for clusters that enforce this group
+  - apiGroups: ["policy"]
+    resources:
+      - evictions
+    verbs:
+      - create
   - apiGroups: ["apps"]
     resources:
       - statefulsets

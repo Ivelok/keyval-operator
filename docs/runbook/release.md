@@ -17,6 +17,7 @@ This playbook describes the end-to-end process for cutting a new KeyVal operator
 - [ ] Run `make runbook-check`, `go test ./...`, `make helm-lint`, and `make e2e` locally; address failures.
 - [ ] Bump version in Git tag (`git tag vX.Y.Z && git push origin vX.Y.Z`) or trigger `Release` workflow manually with `version` input.
 - [ ] Monitor `.github/workflows/release.yaml` run; verify steps: image push, cosign sign, helm package upload, changelog generation.
+- [ ] When rolling out the new controller image, allow the existing pod to terminate gracefully. The binary catches `SIGTERM` via `ctrl.SetupSignalHandler()` and drains caches before exit; wait for the old pod to complete before declaring success.
 - [ ] Announce availability with Helm/OCI coordinates (`helm install keyval-operator oci://ghcr.io/<org>/keyval-operator --version X.Y.Z`).
 
 ## Verification
@@ -30,4 +31,3 @@ If release automation fails, page the release manager and revert tag (`git tag -
 ## Related Dashboards
 - [ ] Grafana: *KeyVal CI/CD* (release workflow success rate).
 - [ ] GH Actions dashboard: `https://github.com/ivelok/keyval-operator/actions/workflows/release.yaml`.
-

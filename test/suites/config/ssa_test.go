@@ -37,7 +37,7 @@ func TestServiceSSAAllowsUserAnnotations(t *testing.T) {
 	})
 
 	s.Step("wait-ready", func(ctx context.Context) {
-		updated := manager.WaitReady(ctx, cr, 3*time.Minute)
+		updated := manager.WaitReady(ctx, cr, readyTimeout)
 		*cr = *updated
 		assert.MasterService(t, s.Harness, cr, 45*time.Second)
 	})
@@ -68,7 +68,7 @@ func TestServiceSSAAllowsUserAnnotations(t *testing.T) {
 			t.Fatalf("patch cluster redis config: %v", err)
 		}
 		*cr = *patched
-		updated := manager.WaitReady(ctx, cr, 3*time.Minute)
+		updated := manager.WaitReady(ctx, cr, readyTimeout)
 		*cr = *updated
 	})
 

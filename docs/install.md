@@ -48,8 +48,11 @@ The chart exposes a comprehensive `values.yaml`. Common overrides:
 | `manager.replicas` | Increase controller HA | `manager.replicas=2` |
 | `manager.metricsService.create` | Disable metrics service | `manager.metricsService.create=false` |
 | `manager.podDisruptionBudget.enabled` | Enforce operator PDB | `manager.podDisruptionBudget.enabled=true` |
+| `manager.watchNamespace` | Scope reconciliation to a single namespace (sets `WATCH_NAMESPACE`) | `manager.watchNamespace=apps` |
 | `examples.enabled` | Deploy sample clusters | `examples.enabled=true` |
 | `examples.clusters[].spec` | Provide ready-to-use `KeyValCluster` specs | See below |
+
+Scoping the operator to a single namespace (via `manager.watchNamespace`) reduces informer load and ensures the controller only caches objects it needs. The chart wires this value into the controller’s `WATCH_NAMESPACE` environment variable automatically; leave it empty to keep the default cluster-wide view.
 
 ### TLS and Auth Example
 ```yaml

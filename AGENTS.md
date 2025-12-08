@@ -6,6 +6,14 @@ Guidelines for all AI agents working in this repository. This effort rebuilds th
 - Goal: deliver the operator while keeping work aligned with the internal .codex/task plan.
 - Principle: idempotent reconciliation, minimal downtime, safe updates, clear ownership.
 
+## System Instructions (External Source)
+- Authoritative source file: `/Users/ivelok/.codex/system-prompt.md`.
+- Agents must read and follow the instructions from that file at session start and before executing multi‑step plans. Do not embed or copy its full contents into this repo.
+- Precedence: explicit system/developer/user instructions in the active conversation take priority; otherwise, the external system instructions guide behavior ahead of this AGENTS.md where they differ.
+- Refresh policy: if the file changes, re‑read it; if missing or unreadable, proceed with this AGENTS.md and notify maintainers.
+- Privacy: treat the file as sensitive; do not paste large excerpts, and never commit it or its content here.
+- Optional override: if available, use env var `CODEX_SYSTEM_PROMPT` to point to an alternative path; fallback is the path above.
+
 ## Architecture Reference
 - Authoritative plan: `docs/architecture.md` (modules, APIs, reconcile flow, events, policies).
 - CRD reference: `docs/crd/keyvalcluster.md` and `config/crd/bases/*.yaml`.

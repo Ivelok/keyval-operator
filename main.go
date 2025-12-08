@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"flag"
 	"os"
 	"strconv"
@@ -11,6 +10,7 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
+	crcache "sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
@@ -81,7 +81,8 @@ func main() {
 	flag.IntVar(&redisMaxRetries, "redis-max-retries", redisMaxRetries, "Maximum number of retries per Redis/Sentinel command.")
 	flag.IntVar(&redisMinIdleConns, "redis-min-idle-conns", redisMinIdleConns, "Minimum number of idle connections to maintain in the Redis/Sentinel pool.")
 	flag.Parse()
-	ctx := context.Background()
+	// Use a signal-aware context so the manager can shut down gracefully
+	ctx := ctrl.SetupSignalHandler()
 
 	clientCfg := controllers.ClientFactoryConfig{
 		DialTimeout:              redisDialTimeout,
@@ -127,12 +128,24 @@ func main() {
 	cfg.Burst = selection.Profile.ClientBurst
 	masterCache := controllers.NewMasterAddressCache(selection.Profile.CacheTTL, cacheCapacity)
 
+	// Respect WATCH_NAMESPACE if set (single-namespace cache); empty = cluster-wide
+	watchNamespace := os.Getenv("WATCH_NAMESPACE")
+	if watchNamespace != "" {
+		setupLog.Info("scoping manager cache to namespace", "namespace", watchNamespace)
+	}
+
+	cacheOpts := crcache.Options{}
+	if watchNamespace != "" {
+		cacheOpts.DefaultNamespaces = map[string]crcache.Config{watchNamespace: {}}
+	}
+
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
 		Scheme:                 scheme,
 		Metrics:                metricsserver.Options{BindAddress: metricsAddr},
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "keyval-operator.ivelok.io",
+		Cache:                  cacheOpts,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")

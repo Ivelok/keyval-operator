@@ -61,8 +61,8 @@ func TestRedisConfigDriftStandalone(t *testing.T) {
 	})
 
 	s.Step("wait-config-applied", func(ctx context.Context) {
-		waitForConfig(t, s, cr, "maxmemory-policy", "allkeys-lru", 3*time.Minute)
-		updated := manager.WaitReady(ctx, cr, 3*time.Minute)
+		waitForConfig(t, s, cr, "maxmemory-policy", "allkeys-lru", readyTimeout)
+		updated := manager.WaitReady(ctx, cr, readyTimeout)
 		*cr = *updated
 	})
 
@@ -101,7 +101,7 @@ func TestServiceToggleSentinel(t *testing.T) {
 	})
 
 	s.Step("wait-ready", func(ctx context.Context) {
-		updated := manager.WaitReady(ctx, cr, 3*time.Minute)
+		updated := manager.WaitReady(ctx, cr, readyTimeout)
 		*cr = *updated
 		assert.MasterService(t, s.Harness, cr, 45*time.Second)
 		assert.SentinelService(t, s.Harness, cr, 1*time.Minute)

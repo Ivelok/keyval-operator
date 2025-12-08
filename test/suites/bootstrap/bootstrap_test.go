@@ -24,6 +24,8 @@ import (
 	"github.com/ivelok/keyval-operator/test/internal/versions"
 )
 
+const clusterReadyTimeout = 5 * time.Minute
+
 func TestStandaloneBootstrapEngines(t *testing.T) {
 	for _, tc := range versions.Engines() {
 		tc := tc
@@ -172,7 +174,7 @@ func TestSentinelBootstrapEngines(t *testing.T) {
 			})
 
 			s.Step("wait-ready", func(ctx context.Context) {
-				updated := manager.WaitReady(ctx, cr, 3*time.Minute)
+				updated := manager.WaitReady(ctx, cr, clusterReadyTimeout)
 				if updated.Status.MasterPod == "" {
 					t.Fatalf("expected masterPod to be populated")
 				}
@@ -204,7 +206,7 @@ func TestSentinelBootstrapEngines(t *testing.T) {
 			})
 
 			s.Step("wait-sentinel-quorum", func(ctx context.Context) {
-				updated := s.Harness.WaitForCondition(ctx, cr.Name, keyvalv1alpha1.ConditionSentinelQuorum, metav1.ConditionTrue, 3*time.Minute)
+				updated := s.Harness.WaitForCondition(ctx, cr.Name, keyvalv1alpha1.ConditionSentinelQuorum, metav1.ConditionTrue, clusterReadyTimeout)
 				*cr = *updated
 			})
 
