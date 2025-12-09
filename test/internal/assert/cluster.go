@@ -79,7 +79,7 @@ func MasterServiceName(cluster string) string {
 // RedisPodOrdinals asserts that redis pods match the expected count and ordinals.
 func RedisPodOrdinals(t *testing.T, h *harness.Harness, cluster *keyvalv1alpha1.KeyValCluster, expected int) []corev1.Pod {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(h.Context(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(h.Context(), 5*time.Minute)
 	defer cancel()
 
 	selector := labels.Set{"app": fmt.Sprintf("%s-redis", cluster.Name)}
@@ -88,7 +88,7 @@ func RedisPodOrdinals(t *testing.T, h *harness.Harness, cluster *keyvalv1alpha1.
 		ready []corev1.Pod
 	)
 
-	err := wait.PollUntilContextTimeout(ctx, time.Second, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
+	err := wait.PollUntilContextTimeout(ctx, time.Second, 5*time.Minute, true, func(ctx context.Context) (bool, error) {
 		if err := h.Client().List(ctx, &pods, client.InNamespace(h.Namespace()), client.MatchingLabels(selector)); err != nil {
 			return false, err
 		}

@@ -302,7 +302,7 @@ func buildMetricsContainer(cr *keyvalv1alpha1.KeyValCluster, sec *security.Setti
 		ProbeHandler:        corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Path: "/metrics", Port: intstr.FromInt(int(metricsPort))}},
 		InitialDelaySeconds: 5,
 		TimeoutSeconds:      3,
-		PeriodSeconds:       15,
+		PeriodSeconds:       5,
 		FailureThreshold:    3,
 	}
 	liveness := &corev1.Probe{

@@ -150,8 +150,20 @@ func buildSentinelPodSpec(cr *keyvalv1alpha1.KeyValCluster, sec *security.Settin
 	if sec != nil && sec.TLS.Enabled {
 		probeCmd = fmt.Sprintf("redis-cli --tls --cacert \"$TLS_CA_FILE\" --cert \"$TLS_CERT_FILE\" --key \"$TLS_KEY_FILE\" -p %d PING", sport)
 	}
-	spec.Containers[0].LivenessProbe = &corev1.Probe{ProbeHandler: corev1.ProbeHandler{Exec: &corev1.ExecAction{Command: []string{"sh", "-c", probeCmd}}}}
-	spec.Containers[0].ReadinessProbe = &corev1.Probe{ProbeHandler: corev1.ProbeHandler{Exec: &corev1.ExecAction{Command: []string{"sh", "-c", probeCmd}}}}
+	spec.Containers[0].LivenessProbe = &corev1.Probe{
+		ProbeHandler:        corev1.ProbeHandler{Exec: &corev1.ExecAction{Command: []string{"sh", "-c", probeCmd}}},
+		InitialDelaySeconds: 5,
+		TimeoutSeconds:      3,
+		PeriodSeconds:       10,
+		FailureThreshold:    5,
+	}
+	spec.Containers[0].ReadinessProbe = &corev1.Probe{
+		ProbeHandler:        corev1.ProbeHandler{Exec: &corev1.ExecAction{Command: []string{"sh", "-c", probeCmd}}},
+		InitialDelaySeconds: 5,
+		TimeoutSeconds:      3,
+		PeriodSeconds:       5,
+		FailureThreshold:    3,
+	}
 	spec.Containers[0].Env = append(spec.Containers[0].Env, corev1.EnvVar{Name: "REDIS_PORT", Value: strconv.Itoa(sport)})
 	spec.Containers[0].Lifecycle = redisLifecycle()
 	if sec != nil && sec.TLS.Enabled {
