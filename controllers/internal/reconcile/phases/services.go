@@ -54,28 +54,31 @@ func Services(ctx context.Context, state *reconcile.State) error {
 		return err
 	}
 
-	if cr.Spec.Mode == keyvalv1alpha1.ModeSentinel {
-		sentinelEnabled := true
+	sentinelMode := cr.Spec.Mode == keyvalv1alpha1.ModeSentinel
+	sentinelEnabled := false
+	if sentinelMode {
+		sentinelEnabled = true
 		if cr.Spec.SentinelService != nil && cr.Spec.SentinelService.Create != nil {
 			sentinelEnabled = *cr.Spec.SentinelService.Create
 		}
-		sentinelSvc := resources.SentinelService(cr)
-		if err := ReconcileServiceLifecycle(ctx, deps, cr, sentinelSvc, ServiceLifecycleOptions{
-			Enabled:           sentinelEnabled,
-			PreserveClusterIP: true,
-			ServiceType:       "sentinel",
-		}, logger); err != nil {
-			return err
-		}
+	}
+	sentinelSvc := resources.SentinelService(cr)
+	if err := ReconcileServiceLifecycle(ctx, deps, cr, sentinelSvc, ServiceLifecycleOptions{
+		Enabled:           sentinelEnabled,
+		PreserveClusterIP: true,
+		ServiceType:       "sentinel",
+	}, logger); err != nil {
+		return err
+	}
 
-		sentinelHeadless := resources.SentinelHeadlessService(cr)
-		if err := ReconcileServiceLifecycle(ctx, deps, cr, sentinelHeadless, ServiceLifecycleOptions{
-			Enabled:           true,
-			PreserveClusterIP: false,
-			ServiceType:       "sentinel-headless",
-		}, logger); err != nil {
-			return err
-		}
+	sentinelHeadlessEnabled := sentinelMode
+	sentinelHeadless := resources.SentinelHeadlessService(cr)
+	if err := ReconcileServiceLifecycle(ctx, deps, cr, sentinelHeadless, ServiceLifecycleOptions{
+		Enabled:           sentinelHeadlessEnabled,
+		PreserveClusterIP: false,
+		ServiceType:       "sentinel-headless",
+	}, logger); err != nil {
+		return err
 	}
 
 	createReplicas := true

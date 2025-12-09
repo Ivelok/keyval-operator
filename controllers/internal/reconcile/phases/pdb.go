@@ -123,6 +123,25 @@ func PDB(ctx context.Context, state *reconcile.State) error {
 				}
 			}
 		}
+	} else {
+		// Cleanup sentinel PDB if it exists
+		pdbName := fmt.Sprintf("%s-sentinel", cr.Name)
+		var existing policyv1.PodDisruptionBudget
+		if err := deps.Client.Get(ctx, client.ObjectKey{Namespace: cr.Namespace, Name: pdbName}, &existing); err == nil {
+			isOwned := false
+			for _, ref := range existing.OwnerReferences {
+				if ref.UID == cr.UID {
+					isOwned = true
+					break
+				}
+			}
+			if isOwned {
+				logger.Info("deleting sentinel PDB (mode != Sentinel)", "pdb", pdbName)
+				if err := deps.Client.Delete(ctx, &existing); err != nil {
+					logger.Error(err, "delete sentinel pdb failed")
+				}
+			}
+		}
 	}
 	state.Disruption.SentinelMin = sentinelMin
 

@@ -110,9 +110,6 @@ spec:
                 - Standalone
                 - Sentinel
                 type: string
-                x-kubernetes-validations:
-                - message: mode is immutable after creation
-                  rule: self == oldSelf
               podAnnotations:
                 additionalProperties:
                   type: string

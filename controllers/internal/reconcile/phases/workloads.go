@@ -128,6 +128,28 @@ func Workloads(ctx context.Context, state *reconcile.State) error {
 	}
 
 	if cr.Spec.Mode != keyvalv1alpha1.ModeSentinel {
+		ssSentName := fmt.Sprintf("%s-sentinel", cr.Name)
+		var existingSentinel appsv1.StatefulSet
+		key := client.ObjectKey{Namespace: cr.Namespace, Name: ssSentName}
+		if err := deps.Client.Get(ctx, key, &existingSentinel); err == nil {
+			if existingSentinel.DeletionTimestamp == nil {
+				isOwned := false
+				for _, ref := range existingSentinel.OwnerReferences {
+					if ref.UID == cr.UID {
+						isOwned = true
+						break
+					}
+				}
+				if isOwned {
+					logger.Info("deleting sentinel statefulset because mode is not Sentinel", "statefulset", ssSentName)
+					if err := deps.Client.Delete(ctx, &existingSentinel, client.PropagationPolicy(metav1.DeletePropagationForeground)); err != nil {
+						return controllererrors.WrapTransient(fmt.Errorf("delete sentinel statefulset: %w", err))
+					}
+				}
+			}
+		} else if !apierrors.IsNotFound(err) {
+			return controllererrors.WrapTransient(fmt.Errorf("get sentinel statefulset: %w", err))
+		}
 		return nil
 	}
 
