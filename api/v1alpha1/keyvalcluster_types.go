@@ -414,6 +414,7 @@ type MetricsSpec struct {
 	Enabled *bool `json:"enabled,omitempty"`
 
 	// image overrides the exporter container image (default: ghcr.io/oliver006/redis_exporter:v1.75.0).
+	// +kubebuilder:default="ghcr.io/oliver006/redis_exporter:v1.75.0"
 	// +optional
 	Image string `json:"image,omitempty"`
 

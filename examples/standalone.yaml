@@ -23,6 +23,7 @@ spec:
       redis: 6379
   metrics:
     enabled: true # disable to remove the redis_exporter sidecar
+    # image: my-registry.example.com/redis_exporter:v1.75.0 # override exporter image for private registries
     port: 9121
     resources:
       requests:
