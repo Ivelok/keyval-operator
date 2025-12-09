@@ -2,7 +2,7 @@
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
-  name: {{ include "keyval-operator.fullname" . }}-controller
+  name: {{ include "keyval-operator.controllerName" . }}
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "keyval-operator.labels" . | nindent 4 }}

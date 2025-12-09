@@ -14,7 +14,7 @@ make e2e
 ```
 The command:
 1. Runs `docker-build` and `kubectl apply` through `make deploy` (including a rollout restart).
-2. Executes `go test -tags=e2e ./test/e2e`, creating the `keyval-e2e` namespace plus Standalone and Sentinel `KeyValCluster` objects.
+2. Executes `go test -tags=e2e ./test/suites/...`, creating the `keyval-e2e` namespace plus Standalone and Sentinel `KeyValCluster` objects.
 3. Applies runtime-allowed changes to `redisConfig`/`sentinelConfig` (for example `maxmemory`, `down-after-milliseconds`) and verifies pod UIDs and Services stay intact.
 4. Checks readiness, deletes the master pod, restarts Sentinel pods, triggers a rolling update with a restart-required flag (`appendonly`), and validates that all invariants hold.
 

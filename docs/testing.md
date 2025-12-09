@@ -19,7 +19,7 @@ The CI job `unit` executes this command on every push/PR (see `.github/workflows
 - **Functionality:**
   - `docker-build` — builds the operator image (set `IMG` if you need a custom tag).
   - `deploy` — applies manifests to the cluster.
-  - `go test -tags=e2e` — provisions Standalone/Sentinel `KeyValCluster` objects, injects failures, and validates invariants (OnDelete, labels, failover, runtime config).
+  - `go test -tags=e2e ./test/suites/...` — provisions Standalone/Sentinel `KeyValCluster` objects, injects failures, and validates invariants (OnDelete, labels, failover, runtime config).
   - Dedicated cases cover scaling (`TestSentinelScaleUpDown`, `TestSentinelScaleBlockedByQuorum`) and Sentinel rolling upgrade (`TestSentinelRollingUpgrade`), asserting events `ScaleOperation*`, `StartFailover`/`FailoverCompleted`, and metric `keyval_operator_scale_in_progress`.
   - The version matrix runs Standalone and Sentinel scenarios for Valkey 7.2 / 8.1.2 and Redis 7.2 / 8.2.1; sub jobs run in parallel limited by `E2E_PARALLELISM` to keep total duration bounded.
 - **Variables:**

@@ -28,12 +28,17 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- define "keyval-operator.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "keyval-operator.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name | trunc 63 | trimSuffix "-" }}
+control-plane: controller-manager
+{{- end -}}
+
+{{- define "keyval-operator.controllerName" -}}
+{{- printf "%s-controller-manager" (include "keyval-operator.fullname" .) | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
 {{- define "keyval-operator.serviceAccountName" -}}
 {{- if .Values.serviceAccount.create -}}
-{{- default (printf "%s-controller" (include "keyval-operator.fullname" .)) .Values.serviceAccount.name -}}
+{{- default (include "keyval-operator.controllerName" .) .Values.serviceAccount.name -}}
 {{- else -}}
-{{- default "keyval-operator-controller" .Values.serviceAccount.name -}}
+{{- default "keyval-operator-controller-manager" .Values.serviceAccount.name -}}
 {{- end -}}
 {{- end -}}

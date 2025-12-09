@@ -13,13 +13,13 @@ The release workflow publishes the chart as an OCI artifact. Authenticate (if re
 
 ```bash
 helm registry login ghcr.io -u <gh-username>
-helm pull oci://ghcr.io/ivelok/keyval-operator/keyval-operator --version <version> --untar
+helm pull oci://ghcr.io/ivelok/keyval-operator/keyval-operator --version 0.1.1 --untar
 ```
 
 Alternatively, package the chart locally during development:
 
 ```bash
-make helm-package CHART_VERSION=0.1.0
+make helm-package CHART_VERSION=0.1.1
 ```
 
 ## 2. Install the Operator
@@ -29,7 +29,7 @@ Install the chart into the `keyval-operator-system` namespace (create it if abse
 helm install keyval-operator oci://ghcr.io/ivelok/keyval-operator/keyval-operator \
   --namespace keyval-operator-system \
   --create-namespace \
-  --version <version>
+  --version 0.1.1
 ```
 
 Verify deployment:
@@ -48,8 +48,11 @@ The chart exposes a comprehensive `values.yaml`. Common overrides:
 | `manager.replicas` | Increase controller HA | `manager.replicas=2` |
 | `manager.metricsService.create` | Disable metrics service | `manager.metricsService.create=false` |
 | `manager.podDisruptionBudget.enabled` | Enforce operator PDB | `manager.podDisruptionBudget.enabled=true` |
+| `manager.watchNamespace` | Scope reconciliation to a single namespace (sets `WATCH_NAMESPACE`) | `manager.watchNamespace=apps` |
 | `examples.enabled` | Deploy sample clusters | `examples.enabled=true` |
 | `examples.clusters[].spec` | Provide ready-to-use `KeyValCluster` specs | See below |
+
+Scoping the operator to a single namespace (via `manager.watchNamespace`) reduces informer load and ensures the controller only caches objects it needs. The chart wires this value into the controller’s `WATCH_NAMESPACE` environment variable automatically; leave it empty to keep the default cluster-wide view.
 
 ### TLS and Auth Example
 ```yaml

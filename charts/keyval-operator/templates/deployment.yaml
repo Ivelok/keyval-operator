@@ -1,7 +1,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "keyval-operator.fullname" . }}-controller
+  name: {{ include "keyval-operator.controllerName" . }}
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "keyval-operator.labels" . | nindent 4 }}

@@ -2,47 +2,71 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ include "keyval-operator.fullname" . }}-manager
+  name: {{ include "keyval-operator.fullname" . }}-manager-role
   labels:
     {{- include "keyval-operator.labels" . | nindent 4 }}
 rules:
   - apiGroups: [""]
-    resources: ["pods"]
-    verbs: ["get", "list", "watch", "patch"]
+    resources:
+      - pods
+      - pods/status
+      - services
+      - configmaps
+      - persistentvolumeclaims
+      - events
+      - secrets
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
   - apiGroups: [""]
-    resources: ["services"]
-    verbs: ["get", "list", "watch", "create", "patch", "delete"]
-  - apiGroups: [""]
-    resources: ["configmaps"]
-    verbs: ["get", "list", "watch", "create", "patch"]
-  - apiGroups: [""]
-    resources: ["events"]
-    verbs: ["create", "patch", "update"]
-  - apiGroups: [""]
-    resources: ["secrets"]
-    verbs: ["get", "list", "watch"]
-  - apiGroups: [""]
-    resources: ["persistentvolumeclaims"]
-    verbs: ["get", "list", "watch", "patch", "update", "delete"]
-  - apiGroups: [""]
-    resources: ["pods/eviction"]
-    verbs: ["create"]
-  - apiGroups: ["apps"]
-    resources: ["statefulsets"]
-    verbs: ["get", "list", "watch", "create", "patch"]
+    resources:
+      - pods/eviction
+    verbs:
+      - create
+  # Also allow policy/v1 Eviction for clusters that enforce this group
   - apiGroups: ["policy"]
-    resources: ["poddisruptionbudgets"]
-    verbs: ["get", "list", "watch", "create", "patch", "delete"]
-  - apiGroups: ["coordination.k8s.io"]
-    resources: ["leases"]
-    verbs: ["get", "list", "watch", "create", "update", "patch"]
+    resources:
+      - evictions
+    verbs:
+      - create
+  - apiGroups: ["apps"]
+    resources:
+      - statefulsets
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups: ["policy"]
+    resources:
+      - poddisruptionbudgets
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
   - apiGroups: ["keyval.ivelok.io"]
-    resources: ["keyvalclusters"]
-    verbs: ["get", "list", "watch", "patch", "update"]
-  - apiGroups: ["keyval.ivelok.io"]
-    resources: ["keyvalclusters/status"]
-    verbs: ["get", "patch", "update"]
-  - apiGroups: ["keyval.ivelok.io"]
-    resources: ["keyvalclusters/finalizers"]
-    verbs: ["get", "update", "patch"]
+    resources:
+      - keyvalclusters
+      - keyvalclusters/status
+      - keyvalclusters/finalizers
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
 {{- end }}

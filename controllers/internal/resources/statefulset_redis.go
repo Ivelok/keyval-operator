@@ -146,9 +146,24 @@ func buildPodSpec(cr *keyvalv1alpha1.KeyValCluster, sec *security.Settings) core
 		Resources:       ValueOrEmptyResources(cr.Spec.Resources),
 		SecurityContext: containerSecurityContext(true),
 	}
-	redisContainer.Env = append(redisContainer.Env, corev1.EnvVar{Name: "REDIS_PORT", Value: rportStr})
-	redisContainer.LivenessProbe = &corev1.Probe{ProbeHandler: corev1.ProbeHandler{Exec: &corev1.ExecAction{Command: []string{"sh", LivenessScriptPath}}}}
-	redisContainer.ReadinessProbe = &corev1.Probe{ProbeHandler: corev1.ProbeHandler{Exec: &corev1.ExecAction{Command: []string{"sh", ReadinessScriptPath}}}}
+	redisContainer.Env = append(redisContainer.Env,
+		corev1.EnvVar{Name: "REDIS_PORT", Value: rportStr},
+		corev1.EnvVar{Name: "REDIS_PROBE_TIMEOUT", Value: "3"},
+	)
+	redisContainer.LivenessProbe = &corev1.Probe{
+		ProbeHandler:        corev1.ProbeHandler{Exec: &corev1.ExecAction{Command: []string{"sh", LivenessScriptPath}}},
+		InitialDelaySeconds: 15,
+		TimeoutSeconds:      3,
+		PeriodSeconds:       20,
+		FailureThreshold:    5,
+	}
+	redisContainer.ReadinessProbe = &corev1.Probe{
+		ProbeHandler:        corev1.ProbeHandler{Exec: &corev1.ExecAction{Command: []string{"sh", ReadinessScriptPath}}},
+		InitialDelaySeconds: 5,
+		TimeoutSeconds:      3,
+		PeriodSeconds:       10,
+		FailureThreshold:    3,
+	}
 	containers := []corev1.Container{redisContainer}
 	if metricsOn {
 		containers = append(containers, buildMetricsContainer(cr, sec, rportStr, mport))
@@ -287,7 +302,7 @@ func buildMetricsContainer(cr *keyvalv1alpha1.KeyValCluster, sec *security.Setti
 		ProbeHandler:        corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Path: "/metrics", Port: intstr.FromInt(int(metricsPort))}},
 		InitialDelaySeconds: 5,
 		TimeoutSeconds:      3,
-		PeriodSeconds:       15,
+		PeriodSeconds:       5,
 		FailureThreshold:    3,
 	}
 	liveness := &corev1.Probe{

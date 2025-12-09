@@ -23,6 +23,8 @@ import (
 	"github.com/ivelok/keyval-operator/test/internal/suite"
 )
 
+const readyTimeout = 5 * time.Minute
+
 const (
 	importStatePending   = "Pending"
 	importStateFollowing = "Following"
@@ -31,6 +33,7 @@ const (
 )
 
 func TestExternalImportSnapshot(t *testing.T) {
+	t.Parallel()
 
 	s := suite.New(t)
 	ns := s.Harness.Namespace()
@@ -39,7 +42,7 @@ func TestExternalImportSnapshot(t *testing.T) {
 	manager := cluster.NewManager(s.Harness)
 
 	sourceBuilder := cluster.NewBuilder(ns, image).
-		WithName("import-source").
+		WithNameForTest(t, "import-source").
 		WithLabels(map[string]string{"suite": "bootstrap", "scenario": "external-import", "role": "source"}).
 		WithEphemeralStorage()
 
@@ -70,7 +73,7 @@ func TestExternalImportSnapshot(t *testing.T) {
 	})
 
 	targetBuilder := cluster.NewBuilder(ns, image).
-		WithName("import-target").
+		WithNameForTest(t, "import-target").
 		WithLabels(map[string]string{"suite": "bootstrap", "scenario": "external-import", "role": "target"}).
 		WithReplicas(1).
 		WithEphemeralStorage()
@@ -90,8 +93,8 @@ func TestExternalImportSnapshot(t *testing.T) {
 	})
 
 	s.Step("wait-target-ready", func(ctx context.Context) {
-		s.Harness.WaitForCondition(ctx, target.Name, keyvalv1alpha1.ConditionExternalImport, metav1.ConditionTrue, 3*time.Minute)
-		updated := manager.WaitReady(ctx, target, 3*time.Minute)
+		s.Harness.WaitForCondition(ctx, target.Name, keyvalv1alpha1.ConditionExternalImport, metav1.ConditionTrue, readyTimeout)
+		updated := manager.WaitReady(ctx, target, readyTimeout)
 		*target = *updated
 	})
 
@@ -132,6 +135,7 @@ func TestExternalImportSnapshot(t *testing.T) {
 }
 
 func TestExternalImportLiveCutover(t *testing.T) {
+	t.Parallel()
 
 	s := suite.New(t)
 	ns := s.Harness.Namespace()
@@ -140,7 +144,7 @@ func TestExternalImportLiveCutover(t *testing.T) {
 	manager := cluster.NewManager(s.Harness)
 
 	sourceBuilder := cluster.NewBuilder(ns, image).
-		WithName("live-source").
+		WithNameForTest(t, "live-source").
 		WithLabels(map[string]string{"suite": "bootstrap", "scenario": "external-import-live", "role": "source"}).
 		WithEphemeralStorage()
 
@@ -170,7 +174,7 @@ func TestExternalImportLiveCutover(t *testing.T) {
 	})
 
 	targetBuilder := cluster.NewBuilder(ns, image).
-		WithName("live-target").
+		WithNameForTest(t, "live-target").
 		WithLabels(map[string]string{"suite": "bootstrap", "scenario": "external-import-live", "role": "target"}).
 		WithReplicas(1).
 		WithEphemeralStorage()
@@ -191,7 +195,7 @@ func TestExternalImportLiveCutover(t *testing.T) {
 	})
 
 	s.Step("wait-target-following", func(ctx context.Context) {
-		updated := waitExternalImportState(ctx, t, s.Harness.Client(), ns, target.Name, importStateFollowing, "Following", 3*time.Minute)
+		updated := waitExternalImportState(ctx, t, s.Harness.Client(), ns, target.Name, importStateFollowing, "Following", readyTimeout)
 		*target = *updated
 		if target.Status.MasterPod != "" {
 			t.Fatalf("expected no local master while following, got %s", target.Status.MasterPod)
@@ -234,9 +238,9 @@ func TestExternalImportLiveCutover(t *testing.T) {
 	})
 
 	s.Step("wait-cutover", func(ctx context.Context) {
-		updated := waitExternalImportState(ctx, t, s.Harness.Client(), ns, target.Name, importStateCompleted, "Completed", 3*time.Minute)
-		s.Harness.WaitForCondition(ctx, target.Name, keyvalv1alpha1.ConditionReconciled, metav1.ConditionTrue, 3*time.Minute)
-		ready := manager.WaitReady(ctx, updated, 3*time.Minute)
+		updated := waitExternalImportState(ctx, t, s.Harness.Client(), ns, target.Name, importStateCompleted, "Completed", readyTimeout)
+		s.Harness.WaitForCondition(ctx, target.Name, keyvalv1alpha1.ConditionReconciled, metav1.ConditionTrue, readyTimeout)
+		ready := manager.WaitReady(ctx, updated, readyTimeout)
 		*target = *ready
 	})
 
@@ -253,6 +257,7 @@ func TestExternalImportLiveCutover(t *testing.T) {
 }
 
 func TestExternalImportSentinelSnapshot(t *testing.T) {
+	t.Parallel()
 
 	s := suite.New(t)
 	ns := s.Harness.Namespace()
@@ -260,7 +265,7 @@ func TestExternalImportSentinelSnapshot(t *testing.T) {
 	manager := cluster.NewManager(s.Harness)
 
 	source := cluster.NewBuilder(ns, image).
-		WithName("sentinel-source").
+		WithNameForTest(t, "sentinel-source").
 		WithMode(keyvalv1alpha1.ModeSentinel).
 		WithReplicas(3).
 		WithSentinelCount(3).
@@ -293,7 +298,7 @@ func TestExternalImportSentinelSnapshot(t *testing.T) {
 	})
 
 	target := cluster.NewBuilder(ns, image).
-		WithName("sentinel-target").
+		WithNameForTest(t, "sentinel-target").
 		WithMode(keyvalv1alpha1.ModeSentinel).
 		WithReplicas(3).
 		WithSentinelCount(3).
@@ -346,6 +351,7 @@ func TestExternalImportSentinelSnapshot(t *testing.T) {
 }
 
 func TestExternalImportSentinelLiveCutover(t *testing.T) {
+	t.Parallel()
 
 	s := suite.New(t)
 	ns := s.Harness.Namespace()
@@ -353,7 +359,7 @@ func TestExternalImportSentinelLiveCutover(t *testing.T) {
 	manager := cluster.NewManager(s.Harness)
 
 	source := cluster.NewBuilder(ns, image).
-		WithName("sentinel-live-source").
+		WithNameForTest(t, "sentinel-live-source").
 		WithMode(keyvalv1alpha1.ModeSentinel).
 		WithReplicas(3).
 		WithSentinelCount(3).
@@ -385,7 +391,7 @@ func TestExternalImportSentinelLiveCutover(t *testing.T) {
 	})
 
 	target := cluster.NewBuilder(ns, image).
-		WithName("sentinel-live-target").
+		WithNameForTest(t, "sentinel-live-target").
 		WithMode(keyvalv1alpha1.ModeSentinel).
 		WithReplicas(3).
 		WithSentinelCount(3).
@@ -448,6 +454,7 @@ func TestExternalImportSentinelLiveCutover(t *testing.T) {
 }
 
 func TestExternalImportSourceUnavailable(t *testing.T) {
+	t.Parallel()
 
 	s := suite.New(t)
 	ns := s.Harness.Namespace()
@@ -455,7 +462,7 @@ func TestExternalImportSourceUnavailable(t *testing.T) {
 	manager := cluster.NewManager(s.Harness)
 
 	target := cluster.NewBuilder(ns, image).
-		WithName("import-unreachable").
+		WithNameForTest(t, "import-unreachable").
 		WithEphemeralStorage().
 		Build()
 
@@ -481,6 +488,7 @@ func TestExternalImportSourceUnavailable(t *testing.T) {
 }
 
 func TestExternalImportTimeout(t *testing.T) {
+	t.Parallel()
 
 	s := suite.New(t)
 	ns := s.Harness.Namespace()
@@ -516,7 +524,7 @@ func TestExternalImportTimeout(t *testing.T) {
 	})
 
 	source := cluster.NewBuilder(ns, image).
-		WithName("timeout-source").
+		WithNameForTest(t, "timeout-source").
 		WithEphemeralStorage().
 		Build()
 	source.Spec.Security = &keyvalv1alpha1.SecuritySpec{
@@ -549,7 +557,7 @@ func TestExternalImportTimeout(t *testing.T) {
 	})
 
 	target := cluster.NewBuilder(ns, image).
-		WithName("timeout-target").
+		WithNameForTest(t, "timeout-target").
 		WithEphemeralStorage().
 		Build()
 
@@ -580,6 +588,7 @@ func TestExternalImportTimeout(t *testing.T) {
 }
 
 func TestExternalImportReplicaOfError(t *testing.T) {
+	t.Parallel()
 
 	s := suite.New(t)
 	ns := s.Harness.Namespace()
@@ -587,7 +596,7 @@ func TestExternalImportReplicaOfError(t *testing.T) {
 	manager := cluster.NewManager(s.Harness)
 
 	source := cluster.NewBuilder(ns, image).
-		WithName("replicaof-error-source").
+		WithNameForTest(t, "replicaof-error-source").
 		WithMode(keyvalv1alpha1.ModeSentinel).
 		WithReplicas(3).
 		WithSentinelCount(3).
@@ -601,12 +610,12 @@ func TestExternalImportReplicaOfError(t *testing.T) {
 	})
 
 	s.Step("wait-replicaof-error-source-ready", func(ctx context.Context) {
-		updated := manager.WaitReady(ctx, source, 3*time.Minute)
+		updated := manager.WaitReady(ctx, source, readyTimeout)
 		*source = *updated
 	})
 
 	target := cluster.NewBuilder(ns, image).
-		WithName("replicaof-error-target").
+		WithNameForTest(t, "replicaof-error-target").
 		WithEphemeralStorage().
 		Build()
 	target.Spec.RedisConfig = map[string]string{"rename-command": "REPLICAOF disabled"}
@@ -633,6 +642,7 @@ func TestExternalImportReplicaOfError(t *testing.T) {
 }
 
 func TestExternalImportNoOneError(t *testing.T) {
+	t.Parallel()
 
 	s := suite.New(t)
 	ns := s.Harness.Namespace()
@@ -640,7 +650,7 @@ func TestExternalImportNoOneError(t *testing.T) {
 	manager := cluster.NewManager(s.Harness)
 
 	source := cluster.NewBuilder(ns, image).
-		WithName("noone-error-source").
+		WithNameForTest(t, "noone-error-source").
 		WithEphemeralStorage().
 		Build()
 
@@ -656,7 +666,7 @@ func TestExternalImportNoOneError(t *testing.T) {
 	})
 
 	target := cluster.NewBuilder(ns, image).
-		WithName("noone-error-target").
+		WithNameForTest(t, "noone-error-target").
 		WithEphemeralStorage().
 		Build()
 
@@ -704,7 +714,7 @@ func TestExternalImportNoOneError(t *testing.T) {
 	})
 
 	s.Step("wait-completed-after-retry", func(ctx context.Context) {
-		updated := waitExternalImportState(ctx, t, s.Harness.Client(), ns, target.Name, importStateCompleted, "Completed", 3*time.Minute)
+		updated := waitExternalImportState(ctx, t, s.Harness.Client(), ns, target.Name, importStateCompleted, "Completed", readyTimeout)
 		*target = *updated
 	})
 }

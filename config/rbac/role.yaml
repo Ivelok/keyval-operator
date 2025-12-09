@@ -25,6 +25,10 @@ rules:
 - apiGroups: [""]
   resources: ["pods/eviction"]
   verbs: ["create"]
+  # Some clusters require the policy API group for the Eviction endpoint; keep both for compatibility
+- apiGroups: ["policy"]
+  resources: ["evictions"]
+  verbs: ["create"]
 - apiGroups: ["apps"]
   resources: ["statefulsets"]
   verbs: ["get", "list", "watch", "create", "patch"]

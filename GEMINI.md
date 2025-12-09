@@ -1,6 +1,6 @@
-# AGENTS.md
+# GEMINI.md
 
-Guidelines for all AI agents working in this repository. This effort rebuilds the Kubernetes operator that manages Redis/Valkey clusters (Standalone and Sentinel modes).
+Guidelines for Gemini agent working in this repository. This effort rebuilds the Kubernetes operator that manages Redis/Valkey clusters (Standalone and Sentinel modes).
 
 - Scope: applies to the entire repository.
 - Goal: deliver the operator while keeping work aligned with the internal .codex/task plan.

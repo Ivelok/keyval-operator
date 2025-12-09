@@ -7,13 +7,14 @@ KeyVal Operator automates Redis/Valkey 7+ clusters in Kubernetes (Standalone and
 - `api/v1alpha1/` — CRD types, status definitions, CEL validation.
 - `controllers/` — public reconciler, dependency factory, envtest and e2e helper tests.
 - `controllers/internal/` — domain logic modules:
+  - `finalizer`, `reconcile`, `ssa` — reconcile loop phases and server-side apply helpers.
   - `resources`: ConfigMap/StatefulSet/Service/PDB builders using SSA.
-  - `ops`: replication, Sentinel failover, status, health, runtime config, eviction, observability, bootstrap, update orchestration.
+  - `ops`: replication, Sentinel failover, status, health, runtime config, eviction, observability, bootstrap, importer, storage, update orchestration.
   - `security`: Auth/TLS resolution, `tls.Config` construction, password handling.
   - `clients`: Redis/Sentinel client factories built on go-redis v9.
   - `runtime`: controller-runtime helpers (predicates, backoff, ClusterIP preservation).
 - `docs/` — architecture, observability, e2e guides, runbooks.
-- `test/e2e/` — Go tests compiled with `-tags=e2e` covering upgrades, failover, TLS.
+- `test/suites/` — Go tests compiled with `-tags=e2e` covering upgrades, failover, TLS.
 
 ## 3. Architectural Highlights
 - **Dependency injection & rate limiting:** `NewKeyValClusterReconciler` receives all dependencies, including the typed rate limiter and eviction settings. No global state, which simplifies testing.
