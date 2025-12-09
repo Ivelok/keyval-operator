@@ -90,6 +90,7 @@ func TestDesiredHeadlessService_OverridesMetadata(t *testing.T) {
 func TestDesiredStatefulSet_Golden_Standalone(t *testing.T) {
 	t.Parallel()
 	cr := newCR("demo", keyvalv1alpha1.ModeStandalone)
+	cr.Spec.ImagePullSecrets = []corev1.LocalObjectReference{{Name: "pull-secret"}}
 	ss := resources.StatefulSet(cr, "", "", &security.Settings{})
 	if ss.Spec.UpdateStrategy.Type != appsv1.OnDeleteStatefulSetStrategyType {
 		t.Fatalf("expected OnDelete update strategy")

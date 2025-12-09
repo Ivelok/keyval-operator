@@ -161,6 +161,9 @@ func buildPodSpec(cr *keyvalv1alpha1.KeyValCluster, sec *security.Settings) core
 			{Name: core.RuntimeConfigVolumeName, VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
 		},
 	}
+	if len(cr.Spec.ImagePullSecrets) > 0 {
+		spec.ImagePullSecrets = append([]corev1.LocalObjectReference{}, cr.Spec.ImagePullSecrets...)
+	}
 	spec.SecurityContext = podSecurityContext()
 	grace := int64(25)
 	spec.TerminationGracePeriodSeconds = &grace

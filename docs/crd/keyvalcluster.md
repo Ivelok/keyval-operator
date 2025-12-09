@@ -87,6 +87,8 @@
   - Controls `<cr>-replicas` read service
   - `create=false` removes the Service (metric label `service="replicas"`)
 - `podLabels` / `podAnnotations` (map[string]string; optional)
+- `imagePullSecrets` ([]LocalObjectReference; optional)
+  - Propagated to Redis and Sentinel StatefulSet PodSpecs to pull private images.
 
 **.status Fields**
 - `masterPod` (string)
