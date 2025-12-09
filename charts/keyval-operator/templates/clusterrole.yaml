@@ -36,8 +36,9 @@ rules:
       - list
       - watch
       - create
-      - update
       - patch
+      - update
+      - delete
       - delete
   - apiGroups: ["policy"]
     resources:

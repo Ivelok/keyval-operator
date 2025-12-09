@@ -40,7 +40,6 @@ const (
 type KeyValClusterSpec struct {
 	// mode selects the operating mode.
 	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="mode is immutable after creation"
 	Mode Mode `json:"mode"`
 
 	// engine selects the database engine when image is not explicitly set.
