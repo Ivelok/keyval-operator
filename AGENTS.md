@@ -6,13 +6,6 @@ Guidelines for all AI agents working in this repository. This effort rebuilds th
 - Goal: deliver the operator while keeping work aligned with the internal .codex/task plan.
 - Principle: idempotent reconciliation, minimal downtime, safe updates, clear ownership.
 
-## System Instructions (External Source)
-- Authoritative source file: `/Users/ivelok/.codex/system-prompt.md`.
-- Agents must read and follow the instructions from that file at session start and before executing multi‑step plans. Do not embed or copy its full contents into this repo.
-- Precedence: explicit system/developer/user instructions in the active conversation take priority; otherwise, the external system instructions guide behavior ahead of this AGENTS.md where they differ.
-- Refresh policy: if the file changes, re‑read it; if missing or unreadable, proceed with this AGENTS.md and notify maintainers.
-- Privacy: treat the file as sensitive; do not paste large excerpts, and never commit it or its content here.
-- Optional override: if available, use env var `CODEX_SYSTEM_PROMPT` to point to an alternative path; fallback is the path above.
 
 ## Architecture Reference
 - Authoritative plan: `docs/architecture.md` (modules, APIs, reconcile flow, events, policies).
@@ -48,25 +41,39 @@ Use this structure as you scaffold and refactor:
 │   └── v1alpha1/             # KeyValCluster, +kubebuilder annotations
 ├── controllers/              # Reconciler and helpers
 │   ├── controller.go         # Main controller wiring
-│   ├── statefulset.go        # Desired StatefulSet (OnDelete)
-│   ├── service.go            # Headless + master Services
-│   ├── configmap.go          # redis.conf / sentinel.conf generation
-│   ├── replication.go        # Role detection and replication ensure
-│   ├── sentinel.go           # Failover coordination (Sentinel mode)
-│   └── update.go             # Rolling restarts & update orchestration
+│   └── internal/             # Domain logic modules
+│       ├── finalizer/        # Resource cleanup
+│       ├── reconcile/        # Reconcile phases
+│       ├── resources/        # SSA builders (StatefulSet, Service, PDB)
+│       ├── security/         # Auth/TLS handling
+│       ├── ssa/              # Server-Side Apply helpers
+│       └── ops/              # Operational logic
+│           ├── bootstrap/    # DR/Initial master selection
+│           ├── eviction/     # Safe pod eviction
+│           ├── importer/     # External sync
+│           ├── observability/# Metrics & Events
+│           ├── replication/  # Topology & role detection
+│           ├── sentinel/     # Failover & Quorum
+│           ├── status/       # Status aggregation
+│           ├── storage/      # PVC resize/cleanup
+│           └── update/       # Rolling updates
 ├── config/                   # Kustomize manifests (install/deploy)
+├── docs/                     # Documentation & Runbooks
+├── test/                     # Testing infrastructure
+│   ├── suites/               # E2E scenarios
+│   └── chaos/                # Chaos testing
 └── examples/                 # Example CRs (standalone/sentinel)
 ```
 
 ## Modules & Responsibilities
-- ConfigMap Generator: build `redis.conf` and `sentinel.conf`, annotate PodTemplate with a config hash.
-- StatefulSet Builder: OnDelete policy, probes, volumes, ports, sidecar sentinel (Sentinel mode).
-- Service Manager: headless service for discovery, `<cr>-master` ClusterIP with selector `role=master`.
-- Role Labeler: maintain `role=master|replica` labels on Pods; avoid dual masters.
-- Replication Ensurer: detect the master, align replicas (`REPLICAOF`), handle `SENTINEL RESET`.
-- Failover Coordinator: controlled `SENTINEL FAILOVER`, confirm the new master, update labels/status.
-- Update Orchestrator: image/config drift detection, single-pod rolling updates, safety checks.
-- Status Updater: conditions, current master, role inventory, readiness aggregation.
+- `resources`: Build ConfigMap, StatefulSet (OnDelete), Service, PDB using SSA.
+- `ops/replication`: Detect roles, ensure topology, handle `REPLICAOF`, manage master address cache.
+- `ops/sentinel`: Coordinate failover (`SENTINEL FAILOVER`), validate good slaves, handle `NOQUORUM`.
+- `ops/update`: Plan and execute rolling updates (single-pod), check health guards.
+- `ops/bootstrap`: Handle DR master selection (force-master/freshness) and external import.
+- `ops/status`: Aggregate conditions, roles, and health gate status.
+- `ops/observability`: Manage Prometheus metrics and Kubernetes events.
+- `security`: Resolve Auth/TLS secrets, build client configurations.
 
 ## Reconcile Flow (Summary)
 - Ensure Services (headless, master, sentinel when `mode=Sentinel`).
@@ -117,9 +124,8 @@ Use this structure as you scaffold and refactor:
   - `export KUBEBUILDER_ASSETS="$(PWD)/bin/k8s/1.33.0-$(go env GOOS)-$(go env GOARCH)"`
 - Build and test (after scaffolding):
   - `make build`
-  - `make test`
-  - `go test -race -ldflags="-extldflags=-Wl,-w" ./....`
-  - `make e2e`
+  - `make test`  # Runs go test -race ./...
+  - `make e2e`   # Runs e2e suite in test/suites
 - Quality checks:
   - `go fmt ./... && go run golang.org/x/tools/cmd/goimports@latest -w .`
   - `staticcheck ./...`
@@ -131,11 +137,6 @@ Use this structure as you scaffold and refactor:
   - Bump the image tag (e.g., `controller:dev-<timestamp>`) and update the Deployment template.
   - Patch a dummy annotation on the Pod template: `kubectl -n keyval-operator-system patch deploy/keyval-operator-controller-manager -p '{"spec":{"template":{"metadata":{"annotations":{"redeployAt":"$(date +%s)"}}}}}'`.
 - Shortcuts: `make restart` (rollout restart) or `make redeploy` (build + apply manifests + restart).
-
-## Task 03 Acceptance
-- `docs/architecture.md` exists and matches the CRD.
-- Reconcile flow, modules/APIs, events, and policies are documented.
-- Invariants are noted: `OnDelete`, single-master label, one-pod master service selection, Sentinel quorum rules.
 
 ## Editing Discipline
 - Read, apply a small patch, build, test — repeat.
