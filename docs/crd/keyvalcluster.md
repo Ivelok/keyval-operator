@@ -34,7 +34,7 @@
 - `metrics` (MetricsSpec; optional; default enabled)
   - Adds a `redis_exporter` sidecar to each Redis Pod and exposes HTTP metrics on the headless Service (`<cr>-headless`) when enabled
   - `enabled` (bool; default true) — disable to omit the exporter container and the `metrics` ServicePort
-  - `image` (string; optional; default `ghcr.io/oliver006/redis_exporter:v1.75.0`)
+  - `image` (string; optional; default `ghcr.io/oliver006/redis_exporter:v1.75.0`) — override to use a private registry or custom build
   - `port` (integer; default 9121) — HTTP listen port for `/metrics`
   - `resources` (corev1.ResourceRequirements; optional; default requests: `20m` CPU, `64Mi` memory)
   - The exporter connects to `localhost`, reuses Redis AUTH credentials, and negotiates TLS/mTLS automatically when `spec.security` enables them

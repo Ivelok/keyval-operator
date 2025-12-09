@@ -43,6 +43,7 @@ curl -s localhost:8080/metrics | grep keyval_
 ### Redis Exporter Sidecar
 - `spec.metrics.enabled` (default) adds a `redis_exporter` sidecar to every Redis pod and publishes a `metrics` port on the headless service.
 - The sidecar scrapes `127.0.0.1:${REDIS_PORT}`. When Redis AUTH/TLS is active the exporter reuses the resolved Secret and mounts `/tls`, switching to `rediss://` with client certificates automatically.
+- Override the exporter image with `spec.metrics.image` (default `ghcr.io/oliver006/redis_exporter:v1.75.0`) to use private registries or custom builds.
 - Override the listening port with `spec.metrics.port`; the operator updates the container args (`--web.listen-address=:`), pod `containerPort`, and ServicePort together so hashes stay stable.
 - Prometheus Operator example:
   ```yaml

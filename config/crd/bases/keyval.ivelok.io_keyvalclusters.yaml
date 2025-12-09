@@ -322,6 +322,7 @@ spec:
                     description: enabled toggles the metrics exporter sidecar.
                     type: boolean
                   image:
+                    default: ghcr.io/oliver006/redis_exporter:v1.75.0
                     description: 'image overrides the exporter container image (default:
                       ghcr.io/oliver006/redis_exporter:v1.75.0).'
                     type: string

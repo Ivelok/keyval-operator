@@ -258,6 +258,27 @@ func TestMetricsContainer_CustomPort(t *testing.T) {
 	}
 }
 
+func TestMetricsContainer_CustomImage(t *testing.T) {
+	t.Parallel()
+	cr := crBase("demo", keyvalv1alpha1.ModeStandalone)
+	cr.Spec.Metrics = &keyvalv1alpha1.MetricsSpec{Image: "registry.local/redis_exporter:dev"}
+
+	ss := StatefulSet(cr, "cfg", "", &security.Settings{})
+	var metricsContainer *corev1.Container
+	for i := range ss.Spec.Template.Spec.Containers {
+		if ss.Spec.Template.Spec.Containers[i].Name == core.MetricsContainerName {
+			metricsContainer = &ss.Spec.Template.Spec.Containers[i]
+			break
+		}
+	}
+	if metricsContainer == nil {
+		t.Fatalf("expected metrics container present")
+	}
+	if metricsContainer.Image != "registry.local/redis_exporter:dev" {
+		t.Fatalf("expected custom metrics image, got %q", metricsContainer.Image)
+	}
+}
+
 func TestMetricsContainer_UsesRedisConfigAuth(t *testing.T) {
 	t.Parallel()
 	cr := crBase("legacy", keyvalv1alpha1.ModeStandalone)
