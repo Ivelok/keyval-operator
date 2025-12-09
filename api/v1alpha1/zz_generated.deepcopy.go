@@ -5,7 +5,7 @@
 package v1alpha1
 
 import (
-	v1 "k8s.io/api/core/v1"
+	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -338,6 +338,11 @@ func (in *KeyValClusterSpec) DeepCopyInto(out *KeyValClusterSpec) {
 		for key, val := range *in {
 			(*out)[key] = val
 		}
+	}
+	if in.ImagePullSecrets != nil {
+		in, out := &in.ImagePullSecrets, &out.ImagePullSecrets
+		*out = make([]v1.LocalObjectReference, len(*in))
+		copy(*out, *in)
 	}
 	if in.ReplicationHealth != nil {
 		in, out := &in.ReplicationHealth, &out.ReplicationHealth
