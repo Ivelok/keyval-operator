@@ -4,7 +4,6 @@ package update
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 

@@ -27,7 +27,7 @@ rules:
   verbs: ["create"]
 - apiGroups: ["apps"]
   resources: ["statefulsets"]
-  verbs: ["get", "list", "watch", "create", "patch"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 - apiGroups: ["policy"]
   resources: ["poddisruptionbudgets"]
   verbs: ["get", "list", "watch", "create", "patch", "delete"]
