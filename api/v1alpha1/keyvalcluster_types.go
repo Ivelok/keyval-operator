@@ -127,6 +127,10 @@ type KeyValClusterSpec struct {
 	// +optional
 	PodAnnotations map[string]string `json:"podAnnotations,omitempty"`
 
+	// imagePullSecrets are applied to all Pods created for this cluster to authenticate private registries.
+	// +optional
+	ImagePullSecrets []corev1.LocalObjectReference `json:"imagePullSecrets,omitempty"`
+
 	// replicationHealth tunes Redis replication health thresholds used by the operator.
 	// Deprecated: use spec.health instead. Retained for backward compatibility until v1beta1.
 	// +optional

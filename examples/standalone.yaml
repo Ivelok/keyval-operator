@@ -5,6 +5,9 @@ metadata:
 spec:
   mode: Standalone
   image: valkey/valkey:7.2
+  # Uncomment when pulling from a private registry
+  # imagePullSecrets:
+  #   - name: my-registry-cred
   redisReplicas: 1
   storage:
     type: Persistent

@@ -124,6 +124,9 @@ func buildSentinelPodSpec(cr *keyvalv1alpha1.KeyValCluster, sec *security.Settin
 			{Name: core.DataVolumeName, VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
 		},
 	}
+	if len(cr.Spec.ImagePullSecrets) > 0 {
+		spec.ImagePullSecrets = append([]corev1.LocalObjectReference{}, cr.Spec.ImagePullSecrets...)
+	}
 
 	selector := map[string]string{}
 	if cr.Spec.SentinelPod != nil {

@@ -150,14 +150,18 @@ func TestStatefulSet_DisableMetricsExporter(t *testing.T) {
 	cr := &keyvalv1alpha1.KeyValCluster{
 		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: "default"},
 		Spec: keyvalv1alpha1.KeyValClusterSpec{
-			Mode:          keyvalv1alpha1.ModeStandalone,
-			Image:         "valkey/valkey:7.2",
-			RedisReplicas: replicas,
-			Metrics:       &keyvalv1alpha1.MetricsSpec{Enabled: ptr.To(false)},
+			Mode:             keyvalv1alpha1.ModeStandalone,
+			Image:            "valkey/valkey:7.2",
+			RedisReplicas:    replicas,
+			Metrics:          &keyvalv1alpha1.MetricsSpec{Enabled: ptr.To(false)},
+			ImagePullSecrets: []corev1.LocalObjectReference{{Name: "reg-cred"}},
 		},
 	}
 
 	ss := StatefulSet(cr, "hash", "", &security.Settings{})
+	if len(ss.Spec.Template.Spec.ImagePullSecrets) != 1 || ss.Spec.Template.Spec.ImagePullSecrets[0].Name != "reg-cred" {
+		t.Fatalf("expected imagePullSecrets to propagate, got %v", ss.Spec.Template.Spec.ImagePullSecrets)
+	}
 	for _, c := range ss.Spec.Template.Spec.Containers {
 		if c.Name == core.MetricsContainerName {
 			t.Fatalf("expected metrics container disabled")
