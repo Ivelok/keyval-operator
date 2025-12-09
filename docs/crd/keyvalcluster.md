@@ -2,7 +2,7 @@
 - API Group/Version: `keyval.ivelok.io/v1alpha1`
 - Kind: `KeyValCluster`
 - Scope: Namespaced
-- shortNames: `kvcl`
+- shortNames: `kvc`
 - Modes: `Standalone` and `Sentinel`
 - Kubernetes: v1.26+
 
@@ -18,7 +18,9 @@
   - Example: `valkey/valkey:7.2` or `redis:7.2`
 - `engine` (string; default: `Valkey`)
   - Enum: `Redis`, `Valkey`
-  - Used to select a default image when `spec.image` is not provided (`valkey/valkey:7.2` vs `redis:7.2`)
+  - Used to select a default image when `spec.image` is not explicitly set.
+- `sentinelImage` (string; optional)
+  - Overrides the image used for the Sentinel sidecar. If omitted, reuses `spec.image`.
 - `redisReplicas` (integer; default: 1)
   - Min: 1
   - Standalone: must be 1
@@ -86,6 +88,15 @@
 - `replicasService` (ServiceSpec; optional)
   - Controls `<cr>-replicas` read service
   - `create=false` removes the Service (metric label `service="replicas"`)
+- `sentinelPod` (SentinelPodSpec; optional)
+  - Allows customizing the Sentinel Pod template (labels, annotations, nodeSelector, tolerations, affinity).
+- `sentinelPDB` (SentinelPDB; optional)
+  - Controls the PodDisruptionBudget for Sentinel pods.
+  - `minAvailable` or `maxUnavailable` (IntOrString).
+- `topology` (TopologySpec; optional)
+  - Configures pod distribution.
+  - `spread`: topologySpreadConstraints (maxSkew, topologyKeys, whenUnsatisfiable).
+  - `antiAffinity`: podAntiAffinity (required vs preferred).
 - `podLabels` / `podAnnotations` (map[string]string; optional)
 
 **.status Fields**

@@ -22,10 +22,14 @@ controllers/internal/
 ├── runtime         # shared helpers: predicates, sorting, backoff, ClusterIP preservation
 ├── clients         # Redis/Sentinel factories (go-redis v9) with TLS/Auth from security.Settings
 ├── security        # resolve AUTH/TLS secrets, build tls.Config and passwords
+├── finalizer       # Finalizer management and storage cleanup hooks
+├── reconcile       # Reconcile phases and flow control
+├── ssa             # Server-Side Apply patch construction and field management
 └── ops
     ├── bootstrap   # persist PVC freshness annotations, pick a master candidate
     ├── eviction    # Eviction API wrapper with timeouts, backoff, metrics, events
     ├── health      # compute health gates and thresholds from spec.health
+    ├── importer    # External source data import (Snapshot/Live modes)
     ├── observability
     │   ├── events  # standard Kubernetes events (failover, bootstrap, rolling updates)
     │   └── metrics # Prometheus metrics: register gauges/counters/histograms
@@ -33,6 +37,7 @@ controllers/internal/
     ├── runtimeconfig # apply allow-listed runtime settings (Redis CONFIG, SENTINEL SET)
     ├── sentinel    # TriggerFailover, validate good slave, handle NOQUORUM
     ├── status      # build KeyValClusterStatus and conditions, compute healthGate
+    ├── storage     # PVC resize handling and filesystem check logic
     └── update      # plan and run rolling updates (PlanUpdates + EvaluateGuards)
 ```
 - SSA patches use helpers from `controllers/internal/ssa` that build minimal ConfigMap/Service/StatefulSet/PDB payloads. The operator owns only the required fields (the `redis.conf`/`sentinel.conf` content, service selectors and ports, pod template and PVC, PDB parameters), eliminating conflicts with mesh injectors and load-balancer controllers. Attempts to change immutable Service fields (ClusterIP, IPFamilies/IPFamilyPolicy, NodePort) are logged, trigger the `ServiceImmutableField` event, and increment `keyval_operator_service_immutable_change_total{service,field}`.

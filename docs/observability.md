@@ -7,6 +7,9 @@ The controller exposes metrics on `:8080/metrics` (deployment `keyval-operator-c
 |--------|---------------|---------|
 | `keyval_reconcile_result_total{namespace,cluster,result}` | Counter | Outcome of each reconcile (`success`, `stalled`, `error`); reveals failure frequency and stuck loops. |
 | `keyval_reconcile_duration_seconds{namespace,cluster}` | Histogram | Reconcile duration distribution; recommended SLI: `histogram_quantile(0.9, …)` over 5-minute windows. |
+| `keyval_operator_controller_reconcile_queue_depth{controller}` | Gauge | Current depth of the reconcile workqueue per controller (e.g., `keyvalcluster`). |
+| `keyval_operator_requeue_backoff_seconds{namespace,cluster}` | Histogram | Observed requeue backoff delays; helps track degradation loops. |
+| `keyval_status_update_total{namespace,cluster,mutated}` | Counter | Number of status reconciliation attempts (`mutated=true|false`). |
 | `keyval_operator_eviction_attempt_total{namespace,cluster,component}` | Counter | Number of evictions initiated by the operator (`component=redis|sentinel`). |
 | `keyval_operator_eviction_result_total{namespace,cluster,component,result}` | Counter | Eviction results (`attempt`, `success`, `rejected`, `timeout`, `forbidden`, `error`, `cancelled`); helpful for PDB/RBAC diagnostics. |
 | `keyval_operator_pod_eviction_failures_total{namespace,cluster,component,reason}` | Counter | Failed evictions classified by reason (`too_many_requests`, `forbidden`, `timeout`, `cancelled`, `error`). |
@@ -20,9 +23,12 @@ The controller exposes metrics on `:8080/metrics` (deployment `keyval-operator-c
 | `keyval_label_corrections_total{namespace,cluster}` | Counter | Pod role label corrections (`role=master|replica`). |
 | `keyval_operator_pod_label_patch_conflicts_total{namespace,cluster,pod}` | Counter | `resourceVersion` conflicts while patching a pod role. |
 | `keyval_operator_pod_label_patch_retries_total{namespace,cluster,pod}` | Counter | Extra attempts required to patch a pod role successfully. |
+| `keyval_operator_redis_master_cache_hits_total` / `_misses_total` | Counter | Internal cache performance for master address lookups. |
 | `keyval_operator_failover_decisions_total{namespace,cluster,source}` | Counter | Source of leader decisions (`sentinel|probe|forced`); highlights non-Sentinel fallbacks. |
 | `keyval_failover_triggered_total{namespace,cluster,type}` / `keyval_failover_completed_total{namespace,cluster}` | Counter | Controlled failovers triggered/completed (`type=manual|automatic|forced`). |
 | `keyval_bootstrap_attempt_total{namespace,cluster,mode}` / `keyval_bootstrap_failure_total{namespace,cluster}` | Counter | Bootstrap attempts/failures (`mode=standalone|sentinel`). |
+| `keyval_operator_bootstrap_freshness_gap_bytes{namespace,cluster}` | Gauge | Difference in replication offset (bytes) between the selected DR master and the next candidate. |
+| `keyval_operator_bootstrap_freshness_source{namespace,cluster,source}` | Gauge | Source of DR bootstrap decision (1=force-master, 2=freshness, 3=seed). |
 | `keyval_external_import_attempt_total{namespace,cluster,mode}` / `keyval_external_import_success_total{namespace,cluster,mode}` | Counter | External import attempts and successful completions (mode = snapshot/live). |
 | `keyval_external_import_failure_total{namespace,cluster,reason}` | Counter | External import failures classified by reason (`target_not_empty`, `timeout`, `source_unreachable`, ...). |
 | `keyval_external_import_duration_seconds{namespace,cluster,mode}` | Histogram | Time spent waiting for external import to finish. |
@@ -33,6 +39,15 @@ The controller exposes metrics on `:8080/metrics` (deployment `keyval-operator-c
 | `keyval_operator_sentinel_noquorum_reports{namespace,cluster}` | Gauge | Count of Sentinels that reported `NOQUORUM` in the last check. |
 | `keyval_operator_sentinel_quorum_loss_since{namespace,cluster}` | Gauge | Unix timestamp when quorum was first lost (`0` once restored). |
 | `keyval_operator_sentinel_resets_total{namespace,cluster}` | Counter | Number of `SENTINEL RESET` commands executed by the operator. |
+| `keyval_operator_sentinel_apply_failures_total{namespace,cluster,reason}` | Counter | Sentinel StatefulSet SSA errors (`reason=immutable_field|error`). |
+| `keyval_operator_redis_apply_failures_total{namespace,cluster,reason}` | Counter | Redis StatefulSet SSA errors (`reason=immutable_field|error`). |
+| `keyval_operator_external_call_timeouts_total{namespace,cluster,command,endpoint}` | Counter | Redis/Sentinel command timeouts recorded by the client wrappers. |
+| `keyval_operator_redis_client_retries_total{namespace,cluster,command,endpoint}` | Counter | Extra Redis/Sentinel attempts beyond the initial call. |
+| `keyval_operator_finalizer_duration_seconds{namespace,cluster,policy,result}` | Histogram | Duration of storage cleanup finalizer execution. |
+| `keyval_operator_storage_cleanup_failures_total{namespace,cluster,policy,reason}` | Counter | Storage cleanup failures (`reason=timeout|error`). |
+| `keyval_operator_graceful_shutdown_duration_seconds{namespace,cluster,component,pod}` | Histogram | Time taken for pods to terminate (observed via preStop hook or container exit). |
+| `keyval_operator_tls_secret_rotations_total{namespace,cluster,component}` | Counter | Number of TLS secret rotations detected. |
+| `keyval_operator_service_immutable_change_total{namespace,cluster,service,field}` | Counter | Rejected service updates due to immutable field changes. |
 
 Local verification:
 ```bash
