@@ -60,6 +60,10 @@ manifests:
 .PHONY: docker-build docker-push deploy undeploy
 
 IMG ?= controller:latest
+LOCAL_REGISTRY ?= registry.kube-ekb.tou-can.ru
+LOCAL_REPOSITORY ?= keyval-operator
+LOCAL_TAG ?= dev
+LOCAL_IMG := $(LOCAL_REGISTRY)/$(LOCAL_REPOSITORY):$(LOCAL_TAG)
 
 E2E_TAGS ?= e2e
 E2E_TIMEOUT ?= 20m
@@ -116,6 +120,18 @@ e2e-test:
 	E2E_NAMESPACE=$(E2E_NAMESPACE) IMG=$(IMG) go test -tags=$(E2E_TAGS) -count=1 -v -timeout=$(E2E_TIMEOUT) ./test/suites/...
 
 e2e: e2e-setup e2e-test
+
+.PHONY: e2e-registry
+e2e-registry:
+	@echo "Building image $(LOCAL_IMG) and pushing to local registry $(LOCAL_REGISTRY)..."
+	@$(MAKE) --no-print-directory docker-build IMG=$(LOCAL_IMG)
+	@$(MAKE) --no-print-directory docker-push IMG=$(LOCAL_IMG)
+	@echo "Deploying manifests and pointing controller to $(LOCAL_IMG)..."
+	@kubectl apply -k config/default
+	@kubectl -n keyval-operator-system set image deploy/keyval-operator-controller-manager manager=$(LOCAL_IMG)
+	@kubectl -n keyval-operator-system rollout status deploy/keyval-operator-controller-manager --timeout=120s
+	@echo "Running e2e suite with image $(LOCAL_IMG)..."
+	@E2E_NAMESPACE=$(E2E_NAMESPACE) IMG=$(LOCAL_IMG) go test -tags=$(E2E_TAGS) -count=1 -v -timeout=$(E2E_TIMEOUT) ./test/suites/...
 
 e2e-clean:
 	@echo "Deleting e2e namespace/resources ($(E2E_NAMESPACE))..."
