@@ -189,7 +189,7 @@ func MetricsExporter(t *testing.T, pods []corev1.Pod, expectedPort int32) {
 
 func hasPort(ports []corev1.ContainerPort, port int32) bool {
 	for _, p := range ports {
-		if p.Name == "metrics" && p.ContainerPort == port {
+		if p.Name == "http-metrics" && p.ContainerPort == port {
 			return true
 		}
 	}

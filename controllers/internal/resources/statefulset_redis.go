@@ -278,7 +278,7 @@ func buildMetricsContainer(cr *keyvalv1alpha1.KeyValCluster, sec *security.Setti
 		Name:            core.MetricsContainerName,
 		Image:           metricsExporterImage(cr),
 		Args:            args,
-		Ports:           []corev1.ContainerPort{{Name: "metrics", ContainerPort: metricsPort}},
+		Ports:           []corev1.ContainerPort{{Name: "http-metrics", ContainerPort: metricsPort}},
 		Env:             envs,
 		Resources:       desiredMetricsResources(cr),
 		SecurityContext: containerSecurityContext(true),

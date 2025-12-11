@@ -31,7 +31,7 @@ func HeadlessService(cr *keyvalv1alpha1.KeyValCluster) *corev1.Service {
 	}
 	if metricsEnabled(cr) {
 		mport, _ := metricsExporterPort(cr)
-		ports = append(ports, corev1.ServicePort{Name: "metrics", Port: mport, TargetPort: intstr.FromInt(int(mport))})
+		ports = append(ports, corev1.ServicePort{Name: "http-metrics", Port: mport, TargetPort: intstr.FromInt(int(mport))})
 	}
 	return &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{

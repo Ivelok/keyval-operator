@@ -161,7 +161,7 @@ func TestHeadlessService_Defaults(t *testing.T) {
 	if !hasServicePort(svc.Spec.Ports, "redis", 6379) {
 		t.Fatalf("expected redis port 6379, ports=%v", svc.Spec.Ports)
 	}
-	if !hasServicePort(svc.Spec.Ports, "metrics", int(defaultMetricsPort)) {
+	if !hasServicePort(svc.Spec.Ports, "http-metrics", int(defaultMetricsPort)) {
 		t.Fatalf("expected metrics port %d, ports=%v", defaultMetricsPort, svc.Spec.Ports)
 	}
 }
@@ -181,7 +181,7 @@ func TestHeadlessService_CustomMetricsPort(t *testing.T) {
 	cr := crBase("demo", keyvalv1alpha1.ModeStandalone)
 	cr.Spec.Metrics = &keyvalv1alpha1.MetricsSpec{Port: 12345}
 	svc := HeadlessService(cr)
-	if !hasServicePort(svc.Spec.Ports, "metrics", 12345) {
+	if !hasServicePort(svc.Spec.Ports, "http-metrics", 12345) {
 		t.Fatalf("expected metrics port override, ports=%v", svc.Spec.Ports)
 	}
 }

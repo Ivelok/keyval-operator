@@ -491,7 +491,7 @@ func metricsPortMatches(pods []corev1.Pod, port int32) bool {
 
 func containerPortEquals(ports []corev1.ContainerPort, want int32) bool {
 	for _, p := range ports {
-		if p.Name == "metrics" && p.ContainerPort == want {
+		if p.Name == "http-metrics" && p.ContainerPort == want {
 			return true
 		}
 	}
