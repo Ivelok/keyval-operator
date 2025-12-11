@@ -41,7 +41,7 @@ curl -s localhost:8080/metrics | grep keyval_
 ```
 
 ### Redis Exporter Sidecar
-- `spec.metrics.enabled` (default) adds a `redis_exporter` sidecar to every Redis pod and publishes a `metrics` port on the headless service.
+- `spec.metrics.enabled` (default) adds a `redis_exporter` sidecar to every Redis pod and publishes a `http-metrics` port on the headless service.
 - The sidecar scrapes `127.0.0.1:${REDIS_PORT}`. When Redis AUTH/TLS is active the exporter reuses the resolved Secret and mounts `/tls`, switching to `rediss://` with client certificates automatically.
 - Override the exporter image with `spec.metrics.image` (default `ghcr.io/oliver006/redis_exporter:v1.75.0`) to use private registries or custom builds.
 - Override the listening port with `spec.metrics.port`; the operator updates the container args (`--web.listen-address=:`), pod `containerPort`, and ServicePort together so hashes stay stable.
@@ -59,7 +59,7 @@ curl -s localhost:8080/metrics | grep keyval_
       matchLabels:
         app: demo-redis
     endpoints:
-      - port: metrics
+      - port: http-metrics
         path: /metrics
         scheme: http
   ```
@@ -97,7 +97,7 @@ The operator writes events to the `KeyValCluster` object. Inspect them via `kube
 ## Prometheus Operator Integration
 Examples live in `examples/observability/`:
 1. `servicemonitor.yaml` — scrape the controller metrics.
-2. `podmonitor.yaml` — scrape external exporters (legacy deployments). Prefer a ServiceMonitor targeting the built-in `metrics` port when `spec.metrics.enabled`.
+2. `podmonitor.yaml` — scrape external exporters (legacy deployments). Prefer a ServiceMonitor targeting the built-in `http-metrics` port when `spec.metrics.enabled`.
 
 ## Recommended Alerts
 - **ReconcileFailures:** `increase(keyval_reconcile_result_total{result="error"}[15m]) > 0`

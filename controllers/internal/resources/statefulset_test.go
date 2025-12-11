@@ -112,7 +112,7 @@ func TestStatefulSetIncludesBootstrapInitContainer(t *testing.T) {
 	if metricsContainer.Image != defaultMetricsImage {
 		t.Fatalf("expected default metrics image %q, got %q", defaultMetricsImage, metricsContainer.Image)
 	}
-	if len(metricsContainer.Ports) != 1 || metricsContainer.Ports[0].Name != "metrics" || metricsContainer.Ports[0].ContainerPort != defaultMetricsPort {
+	if len(metricsContainer.Ports) != 1 || metricsContainer.Ports[0].Name != "http-metrics" || metricsContainer.Ports[0].ContainerPort != defaultMetricsPort {
 		t.Fatalf("unexpected metrics container ports: %+v", metricsContainer.Ports)
 	}
 	if metricsContainer.ReadinessProbe == nil || metricsContainer.ReadinessProbe.HTTPGet == nil {

@@ -31,7 +31,7 @@ KeyVal Operator automates Redis/Valkey 7+ clusters in Kubernetes (Standalone and
   - `keyval_bootstrap_attempt_total`, `keyval_bootstrap_failure_total`, `keyval_failover_triggered_total`, `keyval_failover_completed_total` — bootstrap and failover tracking.
   - `keyval_operator_sentinel_*` — Sentinel quorum state and resets.
   - `keyval_runtime_config_applied_total` / `_failed_total` — runtime config application.
-  - `redis_exporter` sidecar — enabled by default via `spec.metrics`, served on the headless service port `metrics` (default 9121) with TLS/auth passthrough.
+  - `redis_exporter` sidecar — enabled by default via `spec.metrics`, served on the headless service port `http-metrics` (default 9121) with TLS/auth passthrough.
 - **Kubernetes events:** `BootstrapStart/Finish`, `RollingStepBlocked/Resumed`, `SentinelQuorumLost/Restored`, `StartFailover`, `FailoverTriggered`, `NewMaster`, `PodEvicted`, `PDBModeSwitched`, `ReplicationAligned/Drift`, `RuntimeConfigApplied/Failed`.
 - For a detailed table, see `docs/observability.md`.
 
