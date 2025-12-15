@@ -31,6 +31,8 @@ const (
 )
 
 func TestTLSPDBEviction(t *testing.T) {
+	t.Parallel()
+
 	s := suite.New(t)
 	clusterName := fmt.Sprintf("security-tls-pdb-%d", time.Now().UnixNano())
 

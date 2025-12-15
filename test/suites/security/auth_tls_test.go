@@ -38,6 +38,8 @@ const authPassword = "S3cureP@ssw0rd"
 const tlsSecretHashAnnotation = "keyval.ivelok.io/tls-secret-hash"
 
 func TestAuthSentinel(t *testing.T) {
+	t.Parallel()
+
 	s := suite.New(t)
 
 	passSecret := &corev1.Secret{
@@ -109,6 +111,8 @@ func TestAuthSentinel(t *testing.T) {
 }
 
 func TestTLSSentinel(t *testing.T) {
+	t.Parallel()
+
 	s := suite.New(t)
 
 	clusterName := fmt.Sprintf("security-tls-%d", time.Now().UnixNano())
