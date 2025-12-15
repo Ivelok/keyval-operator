@@ -38,3 +38,6 @@ tasks/
 test/e2e/artifacts/
 test/chaos/artifacts/
 test/sla/report.json
+
+.serena/
+bin/

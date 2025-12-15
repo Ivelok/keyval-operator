@@ -6,6 +6,7 @@ The `make e2e` target runs the operator through its primary user workflows insid
 - Docker with permission to build local images.
 - A reachable `kubectl` context (Docker Desktop/kind/minikube) with the `keyval-operator-system` namespace and the CRDs already installed.
 - The cluster must be able to pull the image referenced by `IMG` (defaults to `controller:latest`).
+- If you build on an ARM host (for example Apple Silicon) but your cluster nodes are `amd64`, set `DOCKER_PLATFORM=linux/amd64` when building/pushing images.
 - If `go test` requires envtest assets, export `KUBEBUILDER_ASSETS` just as you do for the unit tests.
 
 ## Primary Scenario
@@ -35,6 +36,7 @@ The E2E harness also removes lingering PVCs labeled `keyvalcluster=<name>` befor
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `IMG` | `controller:latest` | Operator image to build and deploy before the test. |
+| `DOCKER_PLATFORM` | _(empty)_ | Optional `docker build --platform` value (for example `linux/amd64`). |
 | `E2E_NAMESPACE` | `keyval-e2e` | Namespace where the scenario provisions resources. |
 | `E2E_TIMEOUT` | `15m` | `go test` timeout. |
 | `KEEP_RESOURCES` | `0` | Set to `1/true` to keep CRs/pods after the suite finishes. |
