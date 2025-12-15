@@ -44,14 +44,14 @@ func TestMigrationStandaloneToSentinelAndBack(t *testing.T) {
 	s.Step("wait-standalone-ready", func(ctx context.Context) {
 		updated := manager.WaitReady(ctx, cr, 4*time.Minute)
 		*cr = *updated
-		
+
 		// Verify Standalone state
 		assert.MasterService(t, s.Harness, cr, 1*time.Minute)
 		pods := assert.RedisPodOrdinals(t, s.Harness, cr, 1)
 		if len(pods) != 1 {
 			t.Fatalf("expected 1 pod in standalone, got %d", len(pods))
 		}
-		
+
 		// Ensure NO sentinel resources
 		assertNoSentinelResources(t, s, cr)
 	})
@@ -62,7 +62,7 @@ func TestMigrationStandaloneToSentinelAndBack(t *testing.T) {
 		patched.Spec.Mode = keyvalv1alpha1.ModeSentinel
 		patched.Spec.RedisReplicas = 3
 		patched.Spec.SentinelCount = &sentinelCount
-		
+
 		if err := s.Harness.Client().Patch(ctx, patched, client.MergeFrom(cr)); err != nil {
 			t.Fatalf("patch to sentinel mode: %v", err)
 		}
@@ -72,17 +72,17 @@ func TestMigrationStandaloneToSentinelAndBack(t *testing.T) {
 	s.Step("wait-sentinel-ready", func(ctx context.Context) {
 		updated := manager.WaitReady(ctx, cr, 5*time.Minute)
 		*cr = *updated
-		
+
 		// Verify Sentinel state
 		assert.MasterService(t, s.Harness, cr, 1*time.Minute)
 		assert.SentinelService(t, s.Harness, cr, 1*time.Minute)
 		assert.ReplicationHealthy(t, s.Harness, cr, 2*time.Minute)
-		
+
 		pods := assert.RedisPodOrdinals(t, s.Harness, cr, 3)
 		if len(pods) != 3 {
 			t.Fatalf("expected 3 pods in sentinel mode, got %d", len(pods))
 		}
-		
+
 		// Verify Sentinel StatefulSet exists
 		key := types.NamespacedName{Namespace: cr.Namespace, Name: cr.Name + "-sentinel"}
 		var ss appsv1.StatefulSet
@@ -96,7 +96,7 @@ func TestMigrationStandaloneToSentinelAndBack(t *testing.T) {
 		patched.Spec.Mode = keyvalv1alpha1.ModeStandalone
 		patched.Spec.RedisReplicas = 1
 		patched.Spec.SentinelCount = nil
-		
+
 		if err := s.Harness.Client().Patch(ctx, patched, client.MergeFrom(cr)); err != nil {
 			t.Fatalf("patch to standalone mode: %v", err)
 		}
@@ -107,12 +107,12 @@ func TestMigrationStandaloneToSentinelAndBack(t *testing.T) {
 		// Wait for CR to report 1 replica and ready
 		updated := manager.WaitReady(ctx, cr, 4*time.Minute)
 		*cr = *updated
-		
+
 		pods := assert.RedisPodOrdinals(t, s.Harness, cr, 1)
 		if len(pods) != 1 {
 			t.Fatalf("expected 1 pod after downgrade, got %d", len(pods))
 		}
-		
+
 		// Wait for Sentinel resources to be deleted
 		// We poll because deletion might be async relative to CR status ready
 		if err := wait.PollUntilContextTimeout(ctx, 2*time.Second, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
@@ -133,7 +133,7 @@ func TestMigrationStandaloneToSentinelAndBack(t *testing.T) {
 		}); err != nil {
 			t.Fatalf("sentinel statefulset was not deleted: %v", err)
 		}
-		
+
 		assertNoSentinelResources(t, s, cr)
 	})
 }
@@ -156,7 +156,7 @@ func assertNoSentinelResources(t *testing.T, s *suite.Suite, cr *keyvalv1alpha1.
 	if err := s.Harness.Client().Get(ctx, keySvc, &svc); !apierrors.IsNotFound(err) {
 		t.Fatalf("expected no sentinel service, but found one (err=%v)", err)
 	}
-	
+
 	// Check Headless Service
 	keyHeadless := types.NamespacedName{Namespace: ns, Name: name + "-sentinel-headless"}
 	if err := s.Harness.Client().Get(ctx, keyHeadless, &svc); !apierrors.IsNotFound(err) {
