@@ -298,14 +298,20 @@ func ensureWithMaster(ctx context.Context, cr *keyvalv1alpha1.KeyValCluster, pod
 		info, infoErr := c.ReplicationInfo(infoCtx)
 		cancel()
 
-		needsReplicaOf := true
+		attachedToMaster := false
 		if infoErr == nil {
-			if strings.EqualFold(info.Role, "replica") && HostMatchesMaster(info.MasterHost, masterName, masterHost, pods) {
-				if info.MasterPort == 0 || info.MasterPort == masterPort {
-					if replicaAligned(info, opts.threshold) {
-						needsReplicaOf = false
-					}
-				}
+			attachedToMaster = strings.EqualFold(info.Role, "replica") &&
+				HostMatchesMaster(info.MasterHost, masterName, masterHost, pods) &&
+				(info.MasterPort == 0 || info.MasterPort == masterPort)
+		}
+
+		needsReplicaOf := true
+		if attachedToMaster {
+			needsReplicaOf = false
+			if !replicaAligned(info, opts.threshold) {
+				// Replica is already configured to follow the desired master but is still syncing.
+				// Reissuing REPLICAOF here can reset the sync progress and delay readiness.
+				res.Pending = append(res.Pending, p.Name)
 			}
 		}
 		if needsReplicaOf {

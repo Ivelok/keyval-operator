@@ -60,6 +60,11 @@ manifests:
 .PHONY: docker-build docker-push deploy undeploy
 
 IMG ?= controller:latest
+DOCKER_PLATFORM ?=
+DOCKER_BUILD_PLATFORM_FLAG :=
+ifneq ($(strip $(DOCKER_PLATFORM)),)
+DOCKER_BUILD_PLATFORM_FLAG := --platform=$(DOCKER_PLATFORM)
+endif
 LOCAL_REGISTRY ?= registry.kube-ekb.tou-can.ru
 LOCAL_REPOSITORY ?= keyval-operator
 LOCAL_TAG ?= dev
@@ -76,7 +81,7 @@ CHAOS_EXPERIMENTS ?= pod-kill-master,network-latency,sentinel-flood
 
 docker-build:
 	@echo "Building Docker image $(IMG)..."
-	docker build -t $(IMG) .
+	docker build $(DOCKER_BUILD_PLATFORM_FLAG) -t $(IMG) .
 	@if [ -n "$(KIND_CLUSTER_NAME)" ]; then \
 		echo "Loading image $(IMG) into kind cluster $(KIND_CLUSTER_NAME)..."; \
 		kind load docker-image --name $(KIND_CLUSTER_NAME) $(IMG); \

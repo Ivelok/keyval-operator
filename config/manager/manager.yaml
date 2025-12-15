@@ -16,10 +16,12 @@ spec:
         control-plane: controller-manager
     spec:
       serviceAccountName: controller-manager
+      imagePullSecrets:
+        - name: registry-local
       containers:
       - name: manager
         image: controller:latest
-        imagePullPolicy: IfNotPresent
+        imagePullPolicy: Always
         envFrom:
         - configMapRef:
             name: keyval-operator-config

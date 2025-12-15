@@ -330,6 +330,44 @@ func TestEnsureTopologyIdleReplicaDoesNotReissueReplicaOf(t *testing.T) {
 	}
 }
 
+func TestEnsureTopologyAttachedReplicaDoesNotReissueReplicaOfWhileSyncing(t *testing.T) {
+	t.Parallel()
+	cluster := makeCluster(keyvalv1alpha1.ModeSentinel, "default", "demo")
+	pods := []corev1.Pod{
+		podWithIP("demo-0", "default", "10.0.0.1"),
+		podWithIP("demo-1", "default", "10.0.0.2"),
+	}
+	masterClient := &waitClient{role: "master", infoSequence: []ReplicationInfo{{Role: "master"}}}
+	replicaClient := &waitClient{role: "replica", infoSequence: []ReplicationInfo{
+		{Role: "replica", MasterHost: "10.0.0.1", MasterPort: 6379, MasterLinkStatus: "down"},
+	}}
+	factory := &waitFactory{clients: map[string]*waitClient{
+		"demo-0": masterClient,
+		"demo-1": replicaClient,
+	}}
+
+	res, err := EnsureTopology(context.Background(), EnsureRequest{
+		Cluster:      cluster,
+		RedisPods:    pods,
+		Factory:      factory,
+		WaitTimeout:  50 * time.Millisecond,
+		WaitInterval: 10 * time.Millisecond,
+		Security:     nil,
+	})
+	if err != nil {
+		t.Fatalf("ensure topology failed: %v", err)
+	}
+	if res.Changed {
+		t.Fatalf("expected no topology change, got %+v", res)
+	}
+	if replicaClient.replicaOfCalls != 0 {
+		t.Fatalf("ReplicaOf should not be reissued when replica already attached, got %d", replicaClient.replicaOfCalls)
+	}
+	if len(res.Pending) != 1 || res.Pending[0] != "demo-1" {
+		t.Fatalf("expected pending demo-1 while syncing, got %v", res.Pending)
+	}
+}
+
 func TestSanitizeEnsureReasonTrimsNoise(t *testing.T) {
 	input := "  sentinel error\ncontext deadline exceeded  "
 	got := sanitizeEnsureReason(input)
