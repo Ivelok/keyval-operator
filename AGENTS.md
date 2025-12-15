@@ -136,3 +136,7 @@ Use this structure as you scaffold and refactor:
 
 ## Notes
 - Internal task templates live under .codex/tasks for internal use only; refresh the spec there before starting work.
+
+## Basic Memory (Codex)
+- Basic Memory MCP project: `keyval-operator`.
+- Repo notes live under `codex/keyval-operator/` (overview, worklog, tasks, decisions, troubleshooting).

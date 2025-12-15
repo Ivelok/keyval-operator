@@ -25,6 +25,8 @@ import (
 )
 
 func TestStandaloneBootstrapEngines(t *testing.T) {
+	t.Parallel()
+
 	for _, tc := range versions.Engines() {
 		tc := tc
 		t.Run(tc.Name, func(t *testing.T) {
@@ -144,6 +146,8 @@ func waitMasterService(t *testing.T, h *harness.Harness, cluster *keyvalv1alpha1
 }
 
 func TestSentinelBootstrapEngines(t *testing.T) {
+	t.Parallel()
+
 	for _, tc := range versions.Engines() {
 		tc := tc
 		name := fmt.Sprintf("%s-sentinel", tc.Name)
