@@ -24,7 +24,7 @@ The CI job `unit` executes this command on every push/PR (see `.github/workflows
   - The version matrix runs Standalone and Sentinel scenarios for Valkey 7.2 / 8.1.2 and Redis 7.2 / 8.2.1; sub jobs run in parallel limited by `E2E_PARALLELISM` to keep total duration bounded.
 - **Variables:**
   - `IMG` — image name (defaults to `controller:latest`). The cluster must access it; for kind set `KIND_CLUSTER_NAME` as described below.
-  - `E2E_PARALLELISM` — maximum number of concurrent e2e scenarios (default `min(4, max(1, GOMAXPROCS/2))`); backward compatible via `TESTS_NEW_PARALLELISM`.
+  - `E2E_PARALLELISM` — maximum number of concurrent e2e scenarios (default `min(6, max(1, GOMAXPROCS/2))`); backward compatible via `TESTS_NEW_PARALLELISM`.
   - `E2E_NAMESPACE`, `E2E_TIMEOUT`, `KEEP_RESOURCES`, `KEEP_ARTIFACTS` — see `docs/e2e.md`.
 - **kind workflow:**
   - Create the cluster: `kind create cluster --name kv-dev`.

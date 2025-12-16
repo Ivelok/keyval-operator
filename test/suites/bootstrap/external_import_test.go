@@ -481,6 +481,7 @@ func TestExternalImportSourceUnavailable(t *testing.T) {
 }
 
 func TestExternalImportTimeout(t *testing.T) {
+	t.Parallel()
 
 	s := suite.New(t)
 	ns := s.Harness.Namespace()
@@ -580,6 +581,7 @@ func TestExternalImportTimeout(t *testing.T) {
 }
 
 func TestExternalImportReplicaOfError(t *testing.T) {
+	t.Parallel()
 
 	s := suite.New(t)
 	ns := s.Harness.Namespace()
@@ -633,6 +635,7 @@ func TestExternalImportReplicaOfError(t *testing.T) {
 }
 
 func TestExternalImportNoOneError(t *testing.T) {
+	t.Parallel()
 
 	s := suite.New(t)
 	ns := s.Harness.Namespace()
