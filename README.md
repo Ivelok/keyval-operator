@@ -42,15 +42,15 @@ echo "$GITHUB_PAT" | helm registry login ghcr.io --username <github-username> --
 
 helm install keyval-operator oci://ghcr.io/ivelok/keyval-operator/keyval-operator \
   --namespace keyval-operator-system --create-namespace \
-  --version 0.1.1
+  --version <chart-version>
 ```
 
-You can also download the chart locally with `helm pull oci://ghcr.io/ivelok/keyval-operator/keyval-operator --version 0.1.1`.
+You can also download the chart locally with `helm pull oci://ghcr.io/ivelok/keyval-operator/keyval-operator --version <chart-version>`.
 
 ### Publish a new chart version
 ```bash
 helm package charts/keyval-operator
-helm push keyval-operator-0.1.1.tgz oci://ghcr.io/ivelok/keyval-operator
+helm push keyval-operator-<chart-version>.tgz oci://ghcr.io/ivelok/keyval-operator
 ```
 
 Bump `version` and `appVersion` in [`charts/keyval-operator/Chart.yaml`](charts/keyval-operator/Chart.yaml) before packaging.
@@ -62,9 +62,16 @@ Key values (see [`charts/keyval-operator/values.yaml`](charts/keyval-operator/va
 | `image.repository`, `image.tag` | Override controller container image. |
 | `manager.replicas` | Operator deployment replicas (default 1). |
 | `manager.metricsService.create` | Expose metrics service. |
-| `crds.install` | Install CRDs with the chart (default `true`). |
 | `examples.enabled` | Deploy sample `KeyValCluster` resources. |
 | `examples.clusters[].spec` | Declarative KeyValCluster spec supporting auth/tls/pdb thresholds. |
+
+CRDs are shipped in `charts/keyval-operator/crds/`. Helm installs them on first install, but does not
+upgrade CRDs on `helm upgrade`. When upgrading across a version that changes the CRD schema, apply the
+updated CRDs manually before upgrading the release:
+
+```bash
+helm show crds oci://ghcr.io/ivelok/keyval-operator/keyval-operator --version <new-version> | kubectl apply -f -
+```
 
 For advanced scenarios (auth secrets, TLS bundles, PDB strictness), consult [`docs/install.md`](docs/install.md).
 

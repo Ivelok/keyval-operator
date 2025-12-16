@@ -97,7 +97,7 @@ The operator runs with a single ClusterRole scoped to the resources it reconcile
 | `core`                 | `secrets`                   | `get`, `list`, `watch`             | Read TLS/auth material referenced by the CR |
 | `core`                 | `persistentvolumeclaims`    | `get`, `list`, `watch`, `patch`, `update`, `delete` | Track resize status, drop PVCs when `cleanupOnDelete=true` |
 | `core`                 | `pods/eviction`             | `create`                           | Perform safe pod evictions during rolling updates |
-| `apps`                 | `statefulsets`              | `get`, `list`, `watch`, `create`, `patch` | Manage Redis/Sentinel StatefulSets via server-side apply |
+| `apps`                 | `statefulsets`              | `get`, `list`, `watch`, `create`, `update`, `patch`, `delete` | Manage Redis/Sentinel StatefulSets via server-side apply and delete Sentinel workloads during mode transitions |
 | `policy`               | `poddisruptionbudgets`      | `get`, `list`, `watch`, `create`, `patch`, `delete` | Coordinate disruption budgets for Redis/Sentinel, remove during cleanup |
 | `coordination.k8s.io`  | `leases`                    | `get`, `list`, `watch`, `create`, `update`, `patch` | Controller-runtime leader election |
 | `keyval.ivelok.io`     | `keyvalclusters`            | `get`, `list`, `watch`, `patch`, `update` | Read CR spec and annotate/patch status fields |

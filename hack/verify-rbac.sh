@@ -11,14 +11,14 @@ if ! command -v "$KUBECTL" >/dev/null 2>&1; then
 fi
 
 checks=$(cat <<'RULES'
-core pods get,list,watch,patch
+core pods get,list,watch,patch,delete
 core services get,list,watch,create,patch,delete
 core configmaps get,list,watch,create,patch
 core events create,patch,update
-core secrets get
+core secrets get,list,watch
 core persistentvolumeclaims get,list,watch,patch,update,delete
 core pods/eviction create
-apps statefulsets get,list,watch,create,patch
+apps statefulsets get,list,watch,create,update,patch,delete
 policy poddisruptionbudgets get,list,watch,create,patch,delete
 coordination.k8s.io leases get,list,watch,create,update,patch
 keyval.ivelok.io keyvalclusters get,list,watch,patch,update
