@@ -105,4 +105,4 @@ jobs:
           set -euo pipefail
           CHART_PACKAGE=$(ls dist/charts/*.tgz | head -n1)
           helm registry login ${{ env.REGISTRY }} -u ${{ github.actor }} -p ${{ secrets.GITHUB_TOKEN }}
-          helm push "$CHART_PACKAGE" oci://${{ env.REGISTRY }}/${{ github.repository_owner }}
+          helm push "$CHART_PACKAGE" oci://${{ env.REGISTRY }}/${{ github.repository }}

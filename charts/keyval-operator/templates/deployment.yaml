@@ -64,11 +64,6 @@ spec:
             - --health-probe-bind-address=:8081
             - --leader-elect={{ ternary "true" "false" .Values.leaderElection.enabled }}
             - --zap-devel={{ ternary "true" "false" (eq (lower .Values.manager.logLevel) "debug") }}
-{{- if .Values.leaderElection.enabled }}
-{{- with .Values.leaderElection.namespace }}
-            - --leader-election-namespace={{ . }}
-{{- end }}
-{{- end }}
 {{- range $arg := .Values.manager.extraArgs }}
             - {{ tpl $arg $ | quote }}
 {{- end }}
