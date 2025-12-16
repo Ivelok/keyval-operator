@@ -51,9 +51,6 @@ manager:
     enabled: false
     minAvailable: 1
 
-crds:
-  install: true
-
 leaderElection:
   enabled: true
   namespace: ""

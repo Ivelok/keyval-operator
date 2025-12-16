@@ -1,7 +1,14 @@
 KeyVal Operator has been deployed.
 
 To verify the controller is running:
-  kubectl -n {{ .Release.Namespace }} get deploy {{ include "keyval-operator.fullname" . }}-controller
+  kubectl -n {{ .Release.Namespace }} get deploy {{ include "keyval-operator.controllerName" . }}
+
+To verify the metrics service is present (if enabled):
+  kubectl -n {{ .Release.Namespace }} get svc {{ include "keyval-operator.fullname" . }}-metrics
+
+CRD upgrades:
+  Helm does not update CRDs on `helm upgrade`. If you're upgrading to a chart version that changes CRDs, apply them first:
+  helm show crds <chart-ref> --version <new-version> | kubectl apply -f -
 
 To install sample clusters (if enabled):
   kubectl -n {{ default .Release.Namespace .Values.examples.namespace }} get keyvalclusters

@@ -13,13 +13,13 @@ The release workflow publishes the chart as an OCI artifact. Authenticate (if re
 
 ```bash
 helm registry login ghcr.io -u <gh-username>
-helm pull oci://ghcr.io/ivelok/keyval-operator/keyval-operator --version 0.1.1 --untar
+helm pull oci://ghcr.io/ivelok/keyval-operator/keyval-operator --version <chart-version> --untar
 ```
 
 Alternatively, package the chart locally during development:
 
 ```bash
-make helm-package CHART_VERSION=0.1.1
+make helm-package CHART_VERSION=<chart-version>
 ```
 
 ## 2. Install the Operator
@@ -29,7 +29,7 @@ Install the chart into the `keyval-operator-system` namespace (create it if abse
 helm install keyval-operator oci://ghcr.io/ivelok/keyval-operator/keyval-operator \
   --namespace keyval-operator-system \
   --create-namespace \
-  --version 0.1.1
+  --version <chart-version>
 ```
 
 Verify deployment:
@@ -84,7 +84,17 @@ kubectl -n keyval-operator-system get keyvalclusters
 ```
 
 ## 4. Upgrading the Chart
-To upgrade in place:
+Helm does not update CRDs on `helm upgrade`. If the target chart version includes CRD changes, apply them explicitly before upgrading:
+
+```bash
+# When installing from GHCR (OCI)
+helm show crds oci://ghcr.io/ivelok/keyval-operator/keyval-operator --version <new-version> | kubectl apply -f -
+
+# When working from a local checkout
+kubectl apply -f charts/keyval-operator/crds/
+```
+
+Then upgrade the release in place:
 
 ```bash
 helm upgrade keyval-operator oci://ghcr.io/ivelok/keyval-operator/keyval-operator \
@@ -103,10 +113,17 @@ kubectl delete keyvalclusters.keyval.ivelok.io --all-namespaces --all
 helm uninstall keyval-operator --namespace keyval-operator-system
 ```
 
+CRDs are not removed automatically by Helm. If you also want to remove the CRD definitions
+(after all custom resources are deleted), delete them explicitly:
+
+```bash
+kubectl delete crd keyvalclusters.keyval.ivelok.io
+```
+
 ## Verification Checklist
 - [ ] Operator deployment Ready replicas match desired count
 - [ ] CRDs present: `kubectl get crd keyvalclusters.keyval.ivelok.io`
-- [ ] Metrics endpoint accessible (default `keyval-operator-controller` port 8080)
+- [ ] Metrics service present (default `keyval-operator-metrics` port 8080)
 - [ ] Example clusters (if enabled) report `Available=True`
 
 For troubleshooting refer to the operational runbooks and observability guide.
