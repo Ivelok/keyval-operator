@@ -31,6 +31,7 @@ const (
 )
 
 func TestExternalImportSnapshot(t *testing.T) {
+	t.Parallel()
 
 	s := suite.New(t)
 	ns := s.Harness.Namespace()
@@ -132,6 +133,7 @@ func TestExternalImportSnapshot(t *testing.T) {
 }
 
 func TestExternalImportLiveCutover(t *testing.T) {
+	t.Parallel()
 
 	s := suite.New(t)
 	ns := s.Harness.Namespace()
@@ -253,6 +255,7 @@ func TestExternalImportLiveCutover(t *testing.T) {
 }
 
 func TestExternalImportSentinelSnapshot(t *testing.T) {
+	t.Parallel()
 
 	s := suite.New(t)
 	ns := s.Harness.Namespace()
@@ -346,6 +349,7 @@ func TestExternalImportSentinelSnapshot(t *testing.T) {
 }
 
 func TestExternalImportSentinelLiveCutover(t *testing.T) {
+	t.Parallel()
 
 	s := suite.New(t)
 	ns := s.Harness.Namespace()
@@ -448,6 +452,7 @@ func TestExternalImportSentinelLiveCutover(t *testing.T) {
 }
 
 func TestExternalImportSourceUnavailable(t *testing.T) {
+	t.Parallel()
 
 	s := suite.New(t)
 	ns := s.Harness.Namespace()
