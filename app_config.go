@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"time"
 
 	"github.com/ivelok/keyval-operator/controllers"
 )
@@ -23,20 +22,7 @@ func DefaultAppConfig() AppConfig {
 		ProbeAddr:      ":8081",
 		LeaderElection: true,
 		ZapDev:         true,
-		Client: controllers.ClientFactoryConfig{
-			DialTimeout:              3 * time.Second,
-			ReadTimeout:              2 * time.Second,
-			WriteTimeout:             2 * time.Second,
-			PoolTimeout:              2 * time.Second,
-			OperationTimeout:         2 * time.Second,
-			SentinelOperationTimeout: 5 * time.Second,
-			MaxRetries:               2,
-			RetryInitialBackoff:      200 * time.Millisecond,
-			RetryMaxBackoff:          time.Second,
-			RetryBackoffFactor:       2.0,
-			RetryJitter:              0.1,
-			MinIdleConns:             1,
-		},
+		Client:         controllers.DefaultClientFactoryConfig(),
 	}
 }
 
