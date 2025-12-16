@@ -24,7 +24,7 @@ func TestReconcile_StandaloneToSentinel_Migration(t *testing.T) {
 	defer func() { _ = env.Stop() }()
 
 	mgr, err := ctrl.NewManager(cfg.Config, ctrl.Options{
-		Scheme: scheme,
+		Scheme:  scheme,
 		Metrics: metricsserver.Options{BindAddress: "0"},
 	})
 	if err != nil {
@@ -81,12 +81,12 @@ func TestReconcile_StandaloneToSentinel_Migration(t *testing.T) {
 	if err := mgr.GetClient().Get(ctx, types.NamespacedName{Namespace: "default", Name: crName}, &crLatest); err != nil {
 		t.Fatalf("get CR: %v", err)
 	}
-	
+
 	sentinelCount := int32(3)
 	crLatest.Spec.Mode = keyvalv1alpha1.ModeSentinel
 	crLatest.Spec.RedisReplicas = 3
 	crLatest.Spec.SentinelCount = &sentinelCount
-	
+
 	if err := mgr.GetClient().Update(ctx, &crLatest); err != nil {
 		t.Fatalf("update CR to Sentinel: %v", err)
 	}
@@ -119,7 +119,7 @@ func TestReconcile_SentinelToStandalone_Migration(t *testing.T) {
 	defer func() { _ = env.Stop() }()
 
 	mgr, err := ctrl.NewManager(cfg.Config, ctrl.Options{
-		Scheme: scheme,
+		Scheme:  scheme,
 		Metrics: metricsserver.Options{BindAddress: "0"},
 	})
 	if err != nil {
@@ -190,7 +190,7 @@ func TestReconcile_SentinelToStandalone_Migration(t *testing.T) {
 		err := mgr.GetClient().Get(ctx, types.NamespacedName{Namespace: "default", Name: crName + "-sentinel"}, &svcSentinel)
 		return apierrors.IsNotFound(err) || svcSentinel.DeletionTimestamp != nil
 	})
-	
+
 	// c. Sentinel Headless Service deleted
 	mustEventually(t, 15*time.Second, func() bool {
 		var svcSentinelHeadless corev1.Service

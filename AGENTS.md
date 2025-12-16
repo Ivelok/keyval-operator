@@ -30,7 +30,7 @@ Guidelines for all AI agents working in this repository. This effort rebuilds th
 4. **Implementation** — follow the plan, land small patches, validate code frequently, and redeploy to the local cluster when behavior changes.
 5. **Self-review** — audit your changes: list potential issues, confirm checks passed, and polish the code as needed.
 
-Detailed instructions for working with the e2e/chaos suites live in `test/E2E-AGENTS.md`.
+Detailed instructions for working with the e2e/chaos suites live in `docs/e2e.md` (overview) and `docs/testing.md` (matrix/CI).
 
 ## Target Layout
 Use this structure as you scaffold and refactor:

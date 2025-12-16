@@ -37,6 +37,12 @@ controllers/internal/
 ```
 - SSA patches use helpers from `controllers/internal/ssa` that build minimal ConfigMap/Service/StatefulSet/PDB payloads. The operator owns only the required fields (the `redis.conf`/`sentinel.conf` content, service selectors and ports, pod template and PVC, PDB parameters), eliminating conflicts with mesh injectors and load-balancer controllers. Attempts to change immutable Service fields (ClusterIP, IPFamilies/IPFamilyPolicy, NodePort) are logged, trigger the `ServiceImmutableField` event, and increment `keyval_operator_service_immutable_change_total{service,field}`.
 
+### Dependency / Import Rules
+- `api/**` must not import `controllers/**`. API types are shared with users/tests and should stay lightweight and codegen-safe.
+- `controllers/internal/**` must not import the top-level `controllers` package. `controllers` is the wiring layer; `internal` is the leaf implementation layer.
+- `controllers/logging` and `controllers/errors` must not import `controllers/internal/**`. Keep these packages usable everywhere without pulling reconciliation modules or creating cycles.
+- Define interfaces next to the consumer (the package that depends on the behavior), not next to the implementation. This avoids forcing low-level packages to import high-level ones just to satisfy an interface.
+
 ### Redis Pod Health
 - **Liveness** — the `liveness.sh` script (mounted from the ConfigMap) runs `redis-cli PING` against `127.0.0.1:${REDIS_PORT}` and automatically adds TLS flags (`--tls`, `--cacert`, `--cert`, `--key`) when the cluster is encrypted. The probe relies on `REDISCLI_AUTH`/`MASTER_USER`, so it catches authentication issues and process stalls better than a pure TCP socket.
 - **Readiness** — the `readiness.sh` script executes `redis-cli --raw INFO replication` and applies role-specific rules: masters only need a successful response, replicas require `master_link_status=up`, `master_sync_in_progress=0`, `master_link_down_since_seconds=0`, and `master_last_io_seconds_ago` below the threshold (15s by default, overridden via `REDIS_READINESS_MAX_LAST_IO_SECONDS`). Diagnostics are printed to stderr, which simplifies `kubectl logs` triage.

@@ -361,8 +361,8 @@ func determineParallelism() int {
 	if n < 1 {
 		n = 1
 	}
-	if n > 4 {
-		n = 4
+	if n > 6 {
+		n = 6
 	}
 	return n
 }

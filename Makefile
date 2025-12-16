@@ -1,4 +1,4 @@
-.PHONY: all fmt lint build test generate manifests
+.PHONY: all fmt lint build test generate manifests check-imports
 
 HELM ?= helm
 CHART_DIR ?= charts/keyval-operator
@@ -56,6 +56,9 @@ manifests:
 	else \
 		GOFLAGS=-mod=mod go run sigs.k8s.io/controller-tools/cmd/controller-gen@v0.16.5 crd:crdVersions=v1 paths=./api/... output:crd:dir=config/crd/bases; \
 	fi
+
+check-imports:
+	@./hack/check-imports.sh
 
 .PHONY: docker-build docker-push deploy undeploy
 

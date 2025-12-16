@@ -31,7 +31,8 @@ go.work.sum
 # Editor/IDE
 .idea/
 .vscode/
-.codex
+.code/
+.codex/
 tasks/
 
 #artifacts
@@ -40,4 +41,5 @@ test/chaos/artifacts/
 test/sla/report.json
 
 .serena/
+.code/
 bin/

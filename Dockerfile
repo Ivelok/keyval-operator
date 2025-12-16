@@ -16,11 +16,10 @@ ARG TARGETARCH=amd64
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
-    go build -ldflags="-s -w" -o manager ./main.go
+    go build -ldflags="-s -w" -o manager .
 
 FROM gcr.io/distroless/static:nonroot
 WORKDIR /
 COPY --from=builder /workspace/manager /manager
 USER nonroot:nonroot
 ENTRYPOINT ["/manager"]
-
