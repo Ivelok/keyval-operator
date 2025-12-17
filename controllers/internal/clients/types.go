@@ -121,9 +121,6 @@ func (cfg FactoryConfig) ApplyDefaults() FactoryConfig {
 	if cfg.MaxRetries < 0 {
 		cfg.MaxRetries = defaultRetries
 	}
-	if cfg.MaxRetries == 0 {
-		cfg.MaxRetries = defaultRetries
-	}
 	if cfg.RetryInitialBackoff <= 0 {
 		cfg.RetryInitialBackoff = 200 * time.Millisecond
 	}
