@@ -10,10 +10,15 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	apiruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	keyvalv1alpha1 "github.com/ivelok/keyval-operator/api/v1alpha1"
 	"github.com/ivelok/keyval-operator/test/internal/assert"
@@ -144,6 +149,108 @@ func TestServiceToggleSentinel(t *testing.T) {
 		assert.MasterService(t, s.Harness, cr, 45*time.Second)
 		assert.SentinelService(t, s.Harness, cr, 1*time.Minute)
 		assert.ReplicationHealthy(t, s.Harness, cr, 1*time.Minute)
+	})
+}
+
+func TestHeadlessServiceRecreateOnImmutableChange(t *testing.T) {
+	s := suite.New(t)
+
+	builder := cluster.NewBuilder(s.Harness.Namespace(), s.Harness.RedisImage()).
+		WithName("headless-recreate").
+		WithLabels(map[string]string{"suite": "config", "feature": "service-recreate"}).
+		WithEngine(keyvalv1alpha1.EngineValkey).
+		WithImage(s.Harness.RedisImage()).
+		WithEphemeralStorage()
+	cr := builder.Build()
+
+	manager := cluster.NewManager(s.Harness)
+
+	s.Step("create-cluster", func(ctx context.Context) {
+		if err := manager.Apply(ctx, cr); err != nil {
+			t.Fatalf("apply cluster: %v", err)
+		}
+	})
+
+	s.Step("wait-ready", func(ctx context.Context) {
+		updated := manager.WaitReady(ctx, cr, 2*time.Minute)
+		*cr = *updated
+		assert.MasterService(t, s.Harness, cr, 45*time.Second)
+		assert.ReplicationHealthy(t, s.Harness, cr, 1*time.Minute)
+	})
+
+	s.Step("replace-headless-with-clusterip", func(ctx context.Context) {
+		key := types.NamespacedName{Namespace: cr.Namespace, Name: fmt.Sprintf("%s-headless", cr.Name)}
+		var headless corev1.Service
+		if err := s.Harness.Client().Get(ctx, key, &headless); err != nil {
+			t.Fatalf("get headless service: %v", err)
+		}
+		if err := s.Harness.Client().Delete(ctx, &headless); err != nil {
+			t.Fatalf("delete headless service: %v", err)
+		}
+
+		if err := wait.PollUntilContextTimeout(ctx, time.Second, 30*time.Second, true, func(ctx context.Context) (bool, error) {
+			var svc corev1.Service
+			if err := s.Harness.Client().Get(ctx, key, &svc); err != nil {
+				if apierrors.IsNotFound(err) {
+					return true, nil
+				}
+				return false, err
+			}
+			return false, nil
+		}); err != nil {
+			t.Fatalf("wait for headless service removal: %v", err)
+		}
+
+		wrong := &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:        headless.Name,
+				Namespace:   headless.Namespace,
+				Labels:      headless.Labels,
+				Annotations: headless.Annotations,
+			},
+			Spec: corev1.ServiceSpec{
+				Type:     corev1.ServiceTypeClusterIP,
+				Selector: headless.Spec.Selector,
+				Ports:    headless.Spec.Ports,
+			},
+		}
+		scheme := apiruntime.NewScheme()
+		_ = clientgoscheme.AddToScheme(scheme)
+		_ = keyvalv1alpha1.AddToScheme(scheme)
+		if err := controllerutil.SetControllerReference(cr, wrong, scheme); err != nil {
+			t.Fatalf("set owner reference: %v", err)
+		}
+		if err := s.Harness.Client().Create(ctx, wrong); err != nil && !apierrors.IsAlreadyExists(err) {
+			t.Fatalf("create clusterip service: %v", err)
+		}
+
+		var created corev1.Service
+		if err := s.Harness.Client().Get(ctx, key, &created); err != nil {
+			t.Fatalf("get service after create: %v", err)
+		}
+		if created.Spec.ClusterIP == corev1.ClusterIPNone {
+			// Operator may have already recreated the headless service.
+			return
+		}
+		if created.Spec.ClusterIP == "" {
+			t.Fatalf("expected ClusterIP service, got empty clusterIP")
+		}
+	})
+
+	s.Step("wait-headless-recreated", func(ctx context.Context) {
+		key := types.NamespacedName{Namespace: cr.Namespace, Name: fmt.Sprintf("%s-headless", cr.Name)}
+		if err := wait.PollUntilContextTimeout(ctx, time.Second, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
+			var svc corev1.Service
+			if err := s.Harness.Client().Get(ctx, key, &svc); err != nil {
+				if client.IgnoreNotFound(err) == nil {
+					return false, nil
+				}
+				return false, err
+			}
+			return svc.Spec.ClusterIP == corev1.ClusterIPNone, nil
+		}); err != nil {
+			t.Fatalf("wait for headless service recreate: %v", err)
+		}
 	})
 }
 

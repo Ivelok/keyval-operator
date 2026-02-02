@@ -1,5 +1,8 @@
 .PHONY: all fmt lint build test generate manifests check-imports
 
+# Optional local overrides (ignored by git)
+-include .env
+
 HELM ?= helm
 CHART_DIR ?= charts/keyval-operator
 CHART_PACKAGE_DIR ?= dist/charts
@@ -68,10 +71,12 @@ DOCKER_BUILD_PLATFORM_FLAG :=
 ifneq ($(strip $(DOCKER_PLATFORM)),)
 DOCKER_BUILD_PLATFORM_FLAG := --platform=$(DOCKER_PLATFORM)
 endif
-LOCAL_REGISTRY ?= registry.kube-ekb.tou-can.ru
-LOCAL_REPOSITORY ?= keyval-operator
-LOCAL_TAG ?= dev
+LOCAL_REGISTRY ?=
+LOCAL_REPOSITORY ?=
+LOCAL_TAG ?=
 LOCAL_IMG := $(LOCAL_REGISTRY)/$(LOCAL_REPOSITORY):$(LOCAL_TAG)
+LOCAL_REGISTRY_USERNAME ?= registry
+LOCAL_REGISTRY_EMAIL ?= unused@local
 
 E2E_TAGS ?= e2e
 E2E_TIMEOUT ?= 20m
@@ -131,12 +136,34 @@ e2e: e2e-setup e2e-test
 
 .PHONY: e2e-registry
 e2e-registry:
+	@if [ -z "$(LOCAL_REGISTRY)" ] || [ -z "$(LOCAL_REPOSITORY)" ] || [ -z "$(LOCAL_TAG)" ]; then \
+		echo "LOCAL_REGISTRY, LOCAL_REPOSITORY, and LOCAL_TAG are required (set them in .env or pass on the make command line)"; \
+		exit 1; \
+	fi
+	@if [ -z "$(LOCAL_REGISTRY_PASSWORD)" ]; then \
+		echo "LOCAL_REGISTRY_PASSWORD is required (export it or pass on the make command line)"; \
+		exit 1; \
+	fi
+	@echo "Logging in to $(LOCAL_REGISTRY) as $(LOCAL_REGISTRY_USERNAME)..."
+	@printf '%s' "$(LOCAL_REGISTRY_PASSWORD)" | docker login $(LOCAL_REGISTRY) -u $(LOCAL_REGISTRY_USERNAME) --password-stdin
+	@echo "Ensuring pull secret exists in default (secret-copier will propagate)..."
+	@kubectl -n default create secret docker-registry registry-local \
+		--docker-server=$(LOCAL_REGISTRY) \
+		--docker-username=$(LOCAL_REGISTRY_USERNAME) \
+		--docker-password=$(LOCAL_REGISTRY_PASSWORD) \
+		--docker-email=$(LOCAL_REGISTRY_EMAIL) \
+		--dry-run=client -o yaml | kubectl apply -f -
 	@echo "Building image $(LOCAL_IMG) and pushing to local registry $(LOCAL_REGISTRY)..."
 	@$(MAKE) --no-print-directory docker-build IMG=$(LOCAL_IMG)
 	@$(MAKE) --no-print-directory docker-push IMG=$(LOCAL_IMG)
 	@echo "Deploying manifests and pointing controller to $(LOCAL_IMG)..."
 	@kubectl apply -k config/default
+	@for i in 1 2 3 4 5; do \
+		kubectl -n keyval-operator-system get secret registry-local >/dev/null 2>&1 && break; \
+		sleep 2; \
+	done
 	@kubectl -n keyval-operator-system set image deploy/keyval-operator-controller-manager manager=$(LOCAL_IMG)
+	@kubectl -n keyval-operator-system rollout restart deploy/keyval-operator-controller-manager
 	@kubectl -n keyval-operator-system rollout status deploy/keyval-operator-controller-manager --timeout=120s
 	@echo "Running e2e suite with image $(LOCAL_IMG)..."
 	@E2E_NAMESPACE=$(E2E_NAMESPACE) IMG=$(LOCAL_IMG) go test -tags=$(E2E_TAGS) -count=1 -v -timeout=$(E2E_TIMEOUT) ./test/suites/...

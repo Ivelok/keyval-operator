@@ -42,9 +42,10 @@ func TestServiceLifecycle_DisableDeletesService(t *testing.T) {
 		t.Fatalf("set owner: %v", err)
 	}
 
-	client := fake.NewClientBuilder().WithScheme(scheme).
+	baseClient := fake.NewClientBuilder().WithScheme(scheme).
 		WithRuntimeObjects(cr, existing).
 		Build()
+	client := &applyAwareClient{Client: baseClient}
 	recorder := record.NewFakeRecorder(5)
 	opobs.ServiceRemovedCounter().DeleteLabelValues(cr.Namespace, cr.Name, "master")
 
@@ -106,9 +107,10 @@ func TestServiceLifecycle_SkipWhenNotOwned(t *testing.T) {
 	cr.UID = types.UID("demo-uid")
 
 	existing := resources.MasterService(cr.DeepCopy())
-	client := fake.NewClientBuilder().WithScheme(scheme).
+	baseClient := fake.NewClientBuilder().WithScheme(scheme).
 		WithRuntimeObjects(cr, existing).
 		Build()
+	client := &applyAwareClient{Client: baseClient}
 	recorder := record.NewFakeRecorder(2)
 	opobs.ServiceRemovedCounter().DeleteLabelValues(cr.Namespace, cr.Name, "master")
 
@@ -202,15 +204,19 @@ func TestServiceLifecycle_ImmutableGuardClusterIP(t *testing.T) {
 	cr.UID = types.UID("demo-uid")
 
 	existing := resources.MasterService(cr.DeepCopy())
+	if err := controllerutil.SetControllerReference(cr, existing, scheme); err != nil {
+		t.Fatalf("set owner: %v", err)
+	}
 	existing.Spec.ClusterIP = "10.0.0.10"
 	existing.Spec.ClusterIPs = []string{"10.0.0.10"}
 	existing.Spec.IPFamilies = []corev1.IPFamily{corev1.IPv4Protocol}
 	ipPolicy := corev1.IPFamilyPolicySingleStack
 	existing.Spec.IPFamilyPolicy = &ipPolicy
 
-	client := fake.NewClientBuilder().WithScheme(scheme).
+	baseClient := fake.NewClientBuilder().WithScheme(scheme).
 		WithRuntimeObjects(cr, existing).
 		Build()
+	client := &applyAwareClient{Client: baseClient}
 	recorder := record.NewFakeRecorder(5)
 	opobs.ServiceImmutableChangeCounter().DeleteLabelValues(cr.Namespace, cr.Name, "master", "spec.clusterIP")
 
@@ -249,6 +255,123 @@ func TestServiceLifecycle_ImmutableGuardClusterIP(t *testing.T) {
 	}
 	if got := testutil.ToFloat64(metric); got < 1.0 {
 		t.Fatalf("expected immutable change metric >=1, got %f", got)
+	}
+
+	var current corev1.Service
+	err = client.Get(ctx, types.NamespacedName{Namespace: cr.Namespace, Name: core.MasterServiceName(cr)}, &current)
+	switch {
+	case apierrors.IsNotFound(err):
+		// deleted
+	case err == nil && current.DeletionTimestamp != nil:
+		// deletion in progress is acceptable for fake client
+	case err == nil:
+		t.Fatalf("expected master service deletion for recreate, ownerRefs=%+v", current.OwnerReferences)
+	default:
+		t.Fatalf("get master service: %v", err)
+	}
+}
+
+func TestServiceLifecycle_ImmutableSkipWhenNotOwned(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = clientgoscheme.AddToScheme(scheme)
+	_ = keyvalv1alpha1.AddToScheme(scheme)
+
+	cr := &keyvalv1alpha1.KeyValCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: "default"},
+		Spec:       keyvalv1alpha1.KeyValClusterSpec{Mode: keyvalv1alpha1.ModeStandalone, Image: "valkey/valkey:7.2", RedisReplicas: 1},
+	}
+	cr.UID = types.UID("demo-uid")
+
+	existing := resources.MasterService(cr.DeepCopy())
+	existing.Spec.ClusterIP = "10.0.0.10"
+	existing.Spec.ClusterIPs = []string{"10.0.0.10"}
+
+	baseClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithRuntimeObjects(cr, existing).
+		Build()
+	client := &applyAwareClient{Client: baseClient}
+	recorder := record.NewFakeRecorder(5)
+
+	reconciler := NewKeyValClusterReconciler(ReconcilerDependencies{
+		Client:    client,
+		APIReader: client,
+		Scheme:    scheme,
+		Recorder:  recorder,
+	})
+	reconciler.baseLogger = logging.New(slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	desired := resources.MasterService(cr.DeepCopy())
+	desired.Spec.ClusterIP = "10.0.0.20"
+
+	ctx := context.Background()
+	if err := reconciler.reconcileServiceLifecycle(ctx, cr, desired, serviceLifecycleOptions{
+		Enabled:           true,
+		PreserveClusterIP: true,
+		ServiceType:       "master",
+	}, logging.New(slog.New(slog.NewTextHandler(io.Discard, nil)))); err != nil {
+		t.Fatalf("reconcile service lifecycle: %v", err)
+	}
+
+	if !waitForEvent(recorder.Events, "ServiceImmutableField") {
+		t.Fatalf("expected ServiceImmutableField event")
+	}
+
+	var current corev1.Service
+	if err := client.Get(ctx, types.NamespacedName{Namespace: cr.Namespace, Name: core.MasterServiceName(cr)}, &current); err != nil {
+		t.Fatalf("expected master service intact, got err=%v", err)
+	}
+}
+
+func TestServiceLifecycle_IgnoreIPFamilyPolicyWhenUnset(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = clientgoscheme.AddToScheme(scheme)
+	_ = keyvalv1alpha1.AddToScheme(scheme)
+
+	cr := &keyvalv1alpha1.KeyValCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: "default"},
+		Spec:       keyvalv1alpha1.KeyValClusterSpec{Mode: keyvalv1alpha1.ModeStandalone, Image: "valkey/valkey:7.2", RedisReplicas: 1},
+	}
+	cr.UID = types.UID("demo-uid")
+
+	existing := resources.MasterService(cr.DeepCopy())
+	if err := controllerutil.SetControllerReference(cr, existing, scheme); err != nil {
+		t.Fatalf("set owner: %v", err)
+	}
+	existing.Spec.ClusterIP = "10.0.0.10"
+	existing.Spec.ClusterIPs = []string{"10.0.0.10"}
+	ipPolicy := corev1.IPFamilyPolicySingleStack
+	existing.Spec.IPFamilyPolicy = &ipPolicy
+
+	baseClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithRuntimeObjects(cr, existing).
+		Build()
+	client := &applyAwareClient{Client: baseClient}
+	recorder := record.NewFakeRecorder(5)
+	opobs.ServiceImmutableChangeCounter().DeleteLabelValues(cr.Namespace, cr.Name, "master", "spec.ipFamilyPolicy")
+
+	reconciler := NewKeyValClusterReconciler(ReconcilerDependencies{
+		Client:    client,
+		APIReader: client,
+		Scheme:    scheme,
+		Recorder:  recorder,
+	})
+	reconciler.baseLogger = logging.New(slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	desired := resources.MasterService(cr.DeepCopy())
+
+	ctx := context.Background()
+	if err := reconciler.reconcileServiceLifecycle(ctx, cr, desired, serviceLifecycleOptions{
+		Enabled:           true,
+		PreserveClusterIP: true,
+		ServiceType:       "master",
+	}, logging.New(slog.New(slog.NewTextHandler(io.Discard, nil)))); err != nil {
+		t.Fatalf("reconcile service lifecycle: %v", err)
+	}
+
+	select {
+	case evt := <-recorder.Events:
+		t.Fatalf("unexpected event: %s", evt)
+	default:
 	}
 
 	var current corev1.Service
