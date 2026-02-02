@@ -88,9 +88,25 @@ func ReconcileServiceLifecycle(ctx context.Context, deps ServiceDependencies, cr
 
 	if existingFound {
 		if field, detail, changed := detectImmutableServiceChange(&existing, desired); changed {
-			svcLogger.Info("immutable service field change requested, skipping apply", "field", field, "detail", detail)
+			svcLogger.Info("immutable service field change detected, recreating service", "field", field, "detail", detail)
 			opobs.EventServiceImmutableField(deps.Recorder, cr, serviceType, desired.Name, field, detail)
 			opobs.IncServiceImmutableChange(cr, serviceType, field)
+			if !metav1.IsControlledBy(&existing, cr) {
+				svcLogger.Info("service exists without operator ownership, skip recreate")
+				return nil
+			}
+			if existing.DeletionTimestamp != nil {
+				svcLogger.Info("service deletion already in progress, waiting for completion")
+				return nil
+			}
+			policy := metav1.DeletePropagationForeground
+			if err := deps.Client.Delete(ctx, &existing, client.PropagationPolicy(policy)); err != nil {
+				if apierrors.IsNotFound(err) {
+					return nil
+				}
+				return controllererrors.WrapTransient(fmt.Errorf("delete %s service for recreate: %w", serviceType, err))
+			}
+			svcLogger.Info("service deleted to apply immutable change")
 			return nil
 		}
 	}
@@ -125,8 +141,6 @@ func detectImmutableServiceChange(existing, desired *corev1.Service) (field, det
 		if existing.Spec.IPFamilyPolicy == nil || *existing.Spec.IPFamilyPolicy != *desired.Spec.IPFamilyPolicy {
 			return "spec.ipFamilyPolicy", describePolicyChange(existing.Spec.IPFamilyPolicy, desired.Spec.IPFamilyPolicy), true
 		}
-	} else if existing.Spec.IPFamilyPolicy != nil {
-		return "spec.ipFamilyPolicy", describePolicyChange(existing.Spec.IPFamilyPolicy, desired.Spec.IPFamilyPolicy), true
 	}
 	for _, port := range desired.Spec.Ports {
 		if port.NodePort == 0 {
