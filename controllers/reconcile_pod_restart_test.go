@@ -35,6 +35,7 @@ func TestReconcile_PodRestart_ReattachesReplica(t *testing.T) {
 	sec := &security.Settings{}
 	hash := resources.ConfigHash(cr, sec)
 	podSpec := resources.StatefulSet(cr, "", "", sec).Spec.Template.Spec
+	desiredConfig := resources.EffectiveRedisConfig(cr, sec)
 
 	masterPod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -85,8 +86,8 @@ func TestReconcile_PodRestart_ReattachesReplica(t *testing.T) {
 	client := &applyAwareClient{Client: baseClient}
 
 	factory := &trackingFactory{clients: map[string]*trackingClient{
-		"demo-0": {name: "demo-0", role: "master", masterHost: "", masterPort: 0},
-		"demo-1": {name: "demo-1", role: "master", masterHost: "", masterPort: 0, connectErr: fmt.Errorf("not ready")},
+		"demo-0": {name: "demo-0", role: "master", masterHost: "", masterPort: 0, config: cloneStringMap(desiredConfig)},
+		"demo-1": {name: "demo-1", role: "master", masterHost: "", masterPort: 0, connectErr: fmt.Errorf("not ready"), config: cloneStringMap(desiredConfig)},
 	}}
 
 	r := NewKeyValClusterReconciler(ReconcilerDependencies{

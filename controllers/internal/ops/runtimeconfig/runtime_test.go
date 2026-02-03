@@ -39,12 +39,12 @@ func TestApplyRedisRuntime_ApplyAllowlistedKeys(t *testing.T) {
 		},
 	}
 	sec := &security.Settings{}
-	hash := resources.ConfigHash(cr, sec)
+	hash := resources.RedisRuntimeHash(cr, sec)
 	pod := corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        "demo-0",
 			Namespace:   "default",
-			Annotations: map[string]string{resources.ConfigHashAnnotationKey: "old"},
+			Annotations: map[string]string{resources.RuntimeHashAnnotationKey: "old"},
 			Labels:      map[string]string{"app": "demo-redis"},
 		},
 		Status: corev1.PodStatus{Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}},
@@ -70,7 +70,7 @@ func TestApplyRedisRuntime_ApplyAllowlistedKeys(t *testing.T) {
 	if err := fakeClient.Get(context.Background(), types.NamespacedName{Name: pod.Name, Namespace: pod.Namespace}, &updated); err != nil {
 		t.Fatalf("get pod: %v", err)
 	}
-	if updated.Annotations[resources.ConfigHashAnnotationKey] != hash {
+	if updated.Annotations[resources.RuntimeHashAnnotationKey] != hash {
 		t.Fatalf("expected annotation patched to %s", hash)
 	}
 }
@@ -85,8 +85,8 @@ func TestApplyRedisRuntime_NeedsRestartForDenylistedKeys(t *testing.T) {
 		Spec:       keyvalv1alpha1.KeyValClusterSpec{RedisReplicas: 1, RedisConfig: map[string]string{"appendonly": "no"}},
 	}
 	sec := &security.Settings{}
-	hash := resources.ConfigHash(cr, sec)
-	pod := corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "demo-0", Namespace: "default", Annotations: map[string]string{resources.ConfigHashAnnotationKey: "old"}}, Status: corev1.PodStatus{Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}}}
+	hash := resources.RedisRuntimeHash(cr, sec)
+	pod := corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "demo-0", Namespace: "default", Annotations: map[string]string{resources.RuntimeHashAnnotationKey: "old"}}, Status: corev1.PodStatus{Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}}}
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithRuntimeObjects(&pod).Build()
 	currentCfg := resources.EffectiveRedisConfig(cr, sec)
 	currentCfg["appendonly"] = "yes"
@@ -104,7 +104,7 @@ func TestApplyRedisRuntime_NeedsRestartForDenylistedKeys(t *testing.T) {
 	}
 	var unchanged corev1.Pod
 	_ = fakeClient.Get(context.Background(), types.NamespacedName{Name: pod.Name, Namespace: pod.Namespace}, &unchanged)
-	if unchanged.Annotations[resources.ConfigHashAnnotationKey] != "old" {
+	if unchanged.Annotations[resources.RuntimeHashAnnotationKey] != "old" {
 		t.Fatalf("annotation should remain old when restart required")
 	}
 }
@@ -135,12 +135,57 @@ func TestApplySentinelRuntime_AppliesChanges(t *testing.T) {
 		"parallel-syncs":          "1",
 	}}}
 
-	res := ApplySentinelRuntime(context.Background(), factory, cr, pods, testLogger(t), nil, nil)
+	runtimeHash := resources.SentinelRuntimeHash(cr, nil)
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithRuntimeObjects(&pods[0]).Build()
+	res := ApplySentinelRuntime(context.Background(), fakeClient, factory, cr, pods, runtimeHash, testLogger(t), nil, nil)
 	if res.Mode != ModeApplied {
 		t.Fatalf("expected ModeApplied, got %v (%s)", res.Mode, res.Message)
 	}
 	if factory.client.setCalls != 1 {
 		t.Fatalf("expected sentinel SET to be called once, got %d", factory.client.setCalls)
+	}
+}
+
+func TestApplySentinelRuntime_SetFailureNeedsRestart(t *testing.T) {
+	t.Parallel()
+	scheme := runtime.NewScheme()
+	_ = clientgoscheme.AddToScheme(scheme)
+	_ = keyvalv1alpha1.AddToScheme(scheme)
+	cr := &keyvalv1alpha1.KeyValCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: "default"},
+		Spec: keyvalv1alpha1.KeyValClusterSpec{
+			Mode:          keyvalv1alpha1.ModeSentinel,
+			RedisReplicas: 3,
+			SentinelCount: pointer(int32(3)),
+			SentinelConfig: map[string]string{
+				"down-after-milliseconds": "5000",
+			},
+		},
+	}
+	pods := []corev1.Pod{{
+		ObjectMeta: metav1.ObjectMeta{Name: "demo-sentinel-0", Namespace: "default"},
+		Status:     corev1.PodStatus{Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}},
+	}}
+	factory := &stubSentinelFactory{client: &stubSentinelClient{
+		info: map[string]string{
+			"down-after-milliseconds": "3000",
+			"failover-timeout":        "60000",
+			"parallel-syncs":          "1",
+		},
+		setErr: errors.New("boom"),
+	}}
+
+	runtimeHash := resources.SentinelRuntimeHash(cr, nil)
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithRuntimeObjects(&pods[0]).Build()
+	res := ApplySentinelRuntime(context.Background(), fakeClient, factory, cr, pods, runtimeHash, testLogger(t), nil, nil)
+	if res.Mode != ModeNeedsRestart {
+		t.Fatalf("expected ModeNeedsRestart, got %v (%s)", res.Mode, res.Message)
+	}
+	if res.Err == nil || !errors.Is(res.Err, controllererrors.ErrConfigDrift) {
+		t.Fatalf("expected ErrConfigDrift, got %v", res.Err)
+	}
+	if len(res.ChangedKeys) != 1 || res.ChangedKeys[0] != "down-after-milliseconds" {
+		t.Fatalf("unexpected changed keys: %v", res.ChangedKeys)
 	}
 }
 
@@ -204,6 +249,7 @@ func (f *stubSentinelFactory) ForPod(context.Context, corev1.Pod, clientspkg.Sen
 type stubSentinelClient struct {
 	info     map[string]string
 	setCalls int
+	setErr   error
 }
 
 func (s *stubSentinelClient) GetMasterAddrByName(context.Context, string) (string, int, error) {
@@ -212,7 +258,7 @@ func (s *stubSentinelClient) GetMasterAddrByName(context.Context, string) (strin
 func (s *stubSentinelClient) Failover(context.Context, string) error { return nil }
 func (s *stubSentinelClient) Set(context.Context, string, string, string) error {
 	s.setCalls++
-	return nil
+	return s.setErr
 }
 func (s *stubSentinelClient) Master(context.Context, string) (map[string]string, error) {
 	return s.info, nil

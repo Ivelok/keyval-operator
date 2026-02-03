@@ -53,6 +53,7 @@ func syncPodMetadata(ctx context.Context, state *reconcile.State, meta *reconcil
 	labelKeys := managedKeys(meta.PreviousLabels, meta.DesiredLabels)
 	annotationKeys := managedKeys(meta.PreviousAnnotations, meta.DesiredAnnotations)
 	delete(annotationKeys, resources.ConfigHashAnnotationKey)
+	delete(annotationKeys, resources.RuntimeHashAnnotationKey)
 	delete(annotationKeys, resources.TLSSecretHashAnnotationKey)
 	delete(labelKeys, core.RoleLabelKey)
 

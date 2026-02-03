@@ -29,8 +29,9 @@ type Plan struct {
 }
 
 const (
-	ComponentRedis    = "redis"
-	ComponentSentinel = "sentinel"
+	ComponentRedis       = "redis"
+	ComponentSentinel    = "sentinel"
+	ReasonRuntimeRestart = "runtime-restart"
 )
 
 // ErrEvictionRejected captures PDB rejections so callers can surface disruption blocks.
@@ -224,6 +225,8 @@ func IsConfigDriftReason(reason string) bool {
 	case reason == "config-hash":
 		return true
 	case reason == "tls-hash":
+		return true
+	case reason == ReasonRuntimeRestart:
 		return true
 	case strings.HasPrefix(reason, "resources:"):
 		return true

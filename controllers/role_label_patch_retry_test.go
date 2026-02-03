@@ -45,7 +45,9 @@ func TestReconcile_RoleLabelPatchRetriesOnConflict(t *testing.T) {
 	}
 	sec := &security.Settings{}
 	hash := resources.ConfigHash(cr, sec)
+	runtimeHash := resources.RedisRuntimeHash(cr, sec)
 	podSpec := resources.StatefulSet(cr, hash, "", sec).Spec.Template.Spec
+	desiredConfig := resources.EffectiveRedisConfig(cr, sec)
 
 	baseLabels := map[string]string{
 		core.LabelAppKey:     core.AppLabel(cr),
@@ -58,7 +60,10 @@ func TestReconcile_RoleLabelPatchRetriesOnConflict(t *testing.T) {
 			Namespace:       "default",
 			Labels:          mergeLabels(baseLabels, map[string]string{core.RoleLabelKey: string(keyvalv1alpha1.PodRoleMaster)}),
 			ResourceVersion: "1",
-			Annotations:     map[string]string{resources.ConfigHashAnnotationKey: hash},
+			Annotations: map[string]string{
+				resources.ConfigHashAnnotationKey:  hash,
+				resources.RuntimeHashAnnotationKey: runtimeHash,
+			},
 		},
 		Spec: podSpec,
 		Status: corev1.PodStatus{
@@ -75,7 +80,10 @@ func TestReconcile_RoleLabelPatchRetriesOnConflict(t *testing.T) {
 			Namespace:       "default",
 			Labels:          mergeLabels(baseLabels, map[string]string{core.RoleLabelKey: string(keyvalv1alpha1.PodRoleMaster)}),
 			ResourceVersion: "1",
-			Annotations:     map[string]string{resources.ConfigHashAnnotationKey: hash},
+			Annotations: map[string]string{
+				resources.ConfigHashAnnotationKey:  hash,
+				resources.RuntimeHashAnnotationKey: runtimeHash,
+			},
 		},
 		Spec: podSpec,
 		Status: corev1.PodStatus{
@@ -115,8 +123,8 @@ func TestReconcile_RoleLabelPatchRetriesOnConflict(t *testing.T) {
 	}
 
 	factory := &trackingFactory{clients: map[string]*trackingClient{
-		"demo-0": {name: "demo-0", role: "master", masterHost: "10.0.0.1", masterPort: 6379},
-		"demo-1": {name: "demo-1", role: "replica", masterHost: "10.0.0.1", masterPort: 6379},
+		"demo-0": {name: "demo-0", role: "master", masterHost: "10.0.0.1", masterPort: 6379, config: cloneStringMap(desiredConfig)},
+		"demo-1": {name: "demo-1", role: "replica", masterHost: "10.0.0.1", masterPort: 6379, config: cloneStringMap(desiredConfig)},
 	}}
 
 	opobs.PodLabelPatchConflictCounter().DeleteLabelValues("default", "demo", "demo-1")
@@ -193,4 +201,15 @@ func mergeLabels(base map[string]string, extra map[string]string) map[string]str
 
 func prometheusLabels(namespace, cluster, pod string) prometheus.Labels {
 	return prometheus.Labels{"namespace": namespace, "cluster": cluster, "pod": pod}
+}
+
+func cloneStringMap(src map[string]string) map[string]string {
+	if src == nil {
+		return nil
+	}
+	dst := make(map[string]string, len(src))
+	for k, v := range src {
+		dst[k] = v
+	}
+	return dst
 }

@@ -79,6 +79,13 @@ func StatefulSet(cr *keyvalv1alpha1.KeyValCluster, configHash string, tlsHash st
 		}
 		ss.Spec.Template.Annotations[ConfigHashAnnotationKey] = configHash
 	}
+	runtimeHash := RedisRuntimeHash(cr, sec)
+	if runtimeHash != "" {
+		if ss.Spec.Template.Annotations == nil {
+			ss.Spec.Template.Annotations = map[string]string{}
+		}
+		ss.Spec.Template.Annotations[RuntimeHashAnnotationKey] = runtimeHash
+	}
 	if tlsHash != "" {
 		if ss.Spec.Template.Annotations == nil {
 			ss.Spec.Template.Annotations = map[string]string{}

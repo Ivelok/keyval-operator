@@ -55,27 +55,6 @@ func (r Result) withError(err error, msg string) Result {
 	return r
 }
 
-var redisRuntimeAllow = map[string]struct{}{
-	"maxmemory":               {},
-	"maxmemory-policy":        {},
-	"maxmemory-samples":       {},
-	"lfu-log-factor":          {},
-	"lfu-decay-time":          {},
-	"repl-timeout":            {},
-	"repl-backlog-size":       {},
-	"repl-backlog-ttl":        {},
-	"tcp-keepalive":           {},
-	"hz":                      {},
-	"stream-node-max-bytes":   {},
-	"stream-node-max-entries": {},
-}
-
-var sentinelRuntimeAllow = map[string]struct{}{
-	"down-after-milliseconds": {},
-	"failover-timeout":        {},
-	"parallel-syncs":          {},
-}
-
 // ApplyRedisRuntime attempts to align redis.conf with spec without restarting pods.
 func ApplyRedisRuntime(
 	ctx context.Context,
@@ -83,7 +62,7 @@ func ApplyRedisRuntime(
 	factory clientspkg.Factory,
 	cr *keyvalv1alpha1.KeyValCluster,
 	pods []corev1.Pod,
-	desiredHash string,
+	desiredRuntimeHash string,
 	logger logr.Logger,
 	rec record.EventRecorder,
 	sec *security.Settings,
@@ -155,7 +134,7 @@ func ApplyRedisRuntime(
 			if currentVal == desiredVal {
 				continue
 			}
-			if _, allowed := redisRuntimeAllow[key]; !allowed {
+			if !resources.IsRedisRuntimeKey(key) {
 				logger.Info("runtime config requires restart", "pod", pod.Name, "key", key, "desired", desiredRaw, "current", current)
 				needsRestart = true
 				restartKey = key
@@ -181,7 +160,7 @@ func ApplyRedisRuntime(
 	}
 
 	if len(perPodChanges) == 0 {
-		if err := patchConfigHashAnnotations(ctx, kube, pods, desiredHash); err != nil {
+		if err := patchRuntimeHashAnnotations(ctx, kube, pods, desiredRuntimeHash); err != nil {
 			wrap := controllererrors.WrapTransient(controllererrors.WrapKubeAPI(fmt.Errorf("patch redis pod annotations: %w", err)))
 			return Result{Component: "redis"}.withError(wrap, "patch redis pod annotations")
 		}
@@ -227,7 +206,7 @@ func ApplyRedisRuntime(
 		}
 	}
 
-	if err := patchConfigHashAnnotations(ctx, kube, pods, desiredHash); err != nil {
+	if err := patchRuntimeHashAnnotations(ctx, kube, pods, desiredRuntimeHash); err != nil {
 		wrap := controllererrors.WrapTransient(controllererrors.WrapKubeAPI(fmt.Errorf("patch redis pod annotations: %w", err)))
 		return Result{Component: "redis"}.withError(wrap, "patch redis pod annotations")
 	}
@@ -272,9 +251,11 @@ func collectChangedKeys(changed map[string]struct{}) []string {
 // ApplySentinelRuntime aligns sentinel configuration via SENTINEL SET when possible.
 func ApplySentinelRuntime(
 	ctx context.Context,
+	kube client.Client,
 	factory clientspkg.SentinelFactory,
 	cr *keyvalv1alpha1.KeyValCluster,
 	sentinelPods []corev1.Pod,
+	desiredRuntimeHash string,
 	logger logr.Logger,
 	rec record.EventRecorder,
 	sec *security.Settings,
@@ -332,7 +313,7 @@ func ApplySentinelRuntime(
 	desired := resources.EffectiveSentinelConfig(cr, sec)
 	pending := map[string]string{}
 
-	for option := range sentinelRuntimeAllow {
+	for _, option := range resources.SentinelRuntimeKeys() {
 		desiredKey := fmt.Sprintf("sentinel %s", option)
 		desiredVal := desired[desiredKey]
 		current := info[option]
@@ -343,16 +324,13 @@ func ApplySentinelRuntime(
 	}
 
 	if len(pending) == 0 {
+		if err := patchRuntimeHashAnnotations(ctx, kube, sentinelPods, desiredRuntimeHash); err != nil {
+			wrap := controllererrors.WrapTransient(controllererrors.WrapKubeAPI(fmt.Errorf("patch sentinel pod annotations: %w", err)))
+			return Result{Component: "sentinel"}.withError(wrap, "patch sentinel pod annotations")
+		}
 		res.Mode = ModeNoChange
 		res.Message = "sentinel config already in sync"
 		return res
-	}
-
-	for option, val := range pending {
-		if err := client.Set(ctx, cr.Name, option, val); err != nil {
-			wrap := controllererrors.WrapTransient(controllererrors.WrapExternalDependency(fmt.Errorf("SENTINEL SET %s: %w", option, err)))
-			return Result{Component: "sentinel"}.withError(wrap, fmt.Sprintf("SENTINEL SET %s", option))
-		}
 	}
 
 	keys := make([]string, 0, len(pending))
@@ -360,6 +338,21 @@ func ApplySentinelRuntime(
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
+
+	for option, val := range pending {
+		if err := client.Set(ctx, cr.Name, option, val); err != nil {
+			res.Mode = ModeNeedsRestart
+			res.ChangedKeys = keys
+			res.Message = fmt.Sprintf("sentinel runtime config requires restart (%s)", strings.Join(keys, ","))
+			res.Err = controllererrors.WrapConfigDrift(fmt.Errorf("sentinel runtime config requires restart: %s: %w", res.Message, err))
+			return res
+		}
+	}
+
+	if err := patchRuntimeHashAnnotations(ctx, kube, sentinelPods, desiredRuntimeHash); err != nil {
+		wrap := controllererrors.WrapTransient(controllererrors.WrapKubeAPI(fmt.Errorf("patch sentinel pod annotations: %w", err)))
+		return Result{Component: "sentinel"}.withError(wrap, "patch sentinel pod annotations")
+	}
 
 	observability.EventRuntimeConfigApplied(rec, cr, "sentinel", keys)
 	observability.IncRuntimeConfigApplied(cr, "sentinel")
@@ -370,20 +363,20 @@ func ApplySentinelRuntime(
 	return res
 }
 
-func patchConfigHashAnnotations(ctx context.Context, kube client.Client, pods []corev1.Pod, hash string) error {
+func patchRuntimeHashAnnotations(ctx context.Context, kube client.Client, pods []corev1.Pod, hash string) error {
 	if hash == "" {
 		return nil
 	}
 	for i := range pods {
 		pod := pods[i]
-		if pod.Annotations != nil && pod.Annotations[resources.ConfigHashAnnotationKey] == hash {
+		if pod.Annotations != nil && pod.Annotations[resources.RuntimeHashAnnotationKey] == hash {
 			continue
 		}
 		base := pod.DeepCopy()
 		if pod.Annotations == nil {
 			pod.Annotations = map[string]string{}
 		}
-		pod.Annotations[resources.ConfigHashAnnotationKey] = hash
+		pod.Annotations[resources.RuntimeHashAnnotationKey] = hash
 		if err := kube.Patch(ctx, &pod, client.MergeFrom(base)); err != nil {
 			return fmt.Errorf("patch pod %s annotation: %w", pod.Name, err)
 		}

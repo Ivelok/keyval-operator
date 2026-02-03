@@ -185,7 +185,9 @@ type SecurityState struct {
 
 // ConfigState stores derived configuration metadata for subsequent phases.
 type ConfigState struct {
-	ConfigHash string
+	ConfigHash          string
+	RedisRuntimeHash    string
+	SentinelRuntimeHash string
 }
 
 // RuntimeState stores replication, health, and runtime configuration outputs for downstream phases.

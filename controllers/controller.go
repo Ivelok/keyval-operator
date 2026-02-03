@@ -409,6 +409,9 @@ func (r *KeyValClusterReconciler) reconcileUpdatesAndRequeue(ctx context.Context
 		ssDesired = ssa.StatefulSet(resources.StatefulSet(cr, hash, tlsHash, &secSettings))
 	}
 	plan := opupdate.PlanUpdates(ctx, cr, ssDesired, pods, healthStates, storagePlan.PodReasons)
+	if runtimeRestartRequested(state.Runtime.RuntimeResults, opupdate.ComponentRedis) {
+		plan = addPlanReason(plan, pods, opupdate.ReasonRuntimeRestart)
+	}
 	scalePhase := ""
 	if cr.Annotations != nil {
 		scalePhase = cr.Annotations[core.AnnotationScalePhase]
@@ -661,6 +664,9 @@ func (r *KeyValClusterReconciler) reconcileUpdatesAndRequeue(ctx context.Context
 	if cr.Spec.Mode == keyvalv1alpha1.ModeSentinel && len(sentinelPods) > 0 {
 		ssSent := resources.SentinelStatefulSet(cr, hash, tlsHash, &secSettings)
 		sp := opupdate.PlanUpdates(ctx, cr, ssSent, sentinelPods, healthStates, nil)
+		if runtimeRestartRequested(state.Runtime.RuntimeResults, opupdate.ComponentSentinel) {
+			sp = addPlanReason(sp, sentinelPods, opupdate.ReasonRuntimeRestart)
+		}
 		if len(sp.PodNames) > 1 {
 			sort.Slice(sp.PodNames, func(i, j int) bool { return core.Ordinal(sp.PodNames[i]) < core.Ordinal(sp.PodNames[j]) })
 		}
@@ -1015,6 +1021,54 @@ func planHasReason(plan opupdate.Plan, reason string) bool {
 		}
 	}
 	return false
+}
+
+func runtimeRestartRequested(results []opruntimecfg.Result, component string) bool {
+	if component == "" || len(results) == 0 {
+		return false
+	}
+	for _, res := range results {
+		if res.Component != component {
+			continue
+		}
+		if res.Mode == opruntimecfg.ModeNeedsRestart {
+			return true
+		}
+		if res.Err != nil && errors.Is(res.Err, controllererrors.ErrConfigDrift) {
+			return true
+		}
+	}
+	return false
+}
+
+func addPlanReason(plan opupdate.Plan, pods []corev1.Pod, reason string) opupdate.Plan {
+	if reason == "" || len(pods) == 0 {
+		return plan
+	}
+	if plan.Reasons == nil {
+		plan.Reasons = map[string][]string{}
+	}
+	for i := range pods {
+		name := pods[i].Name
+		reasons := plan.Reasons[name]
+		already := false
+		for _, r := range reasons {
+			if r == reason {
+				already = true
+				break
+			}
+		}
+		if !already {
+			reasons = append(reasons, reason)
+		}
+		plan.Reasons[name] = reasons
+	}
+	plan.PodNames = plan.PodNames[:0]
+	for name := range plan.Reasons {
+		plan.PodNames = append(plan.PodNames, name)
+	}
+	sort.Slice(plan.PodNames, func(i, j int) bool { return core.Ordinal(plan.PodNames[i]) > core.Ordinal(plan.PodNames[j]) })
+	return plan
 }
 
 func setScalePhaseAnnotation(ctx context.Context, c client.Client, cr *keyvalv1alpha1.KeyValCluster, phase string) (bool, error) {

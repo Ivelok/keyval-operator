@@ -15,6 +15,7 @@ import (
 	opruntimecfg "github.com/ivelok/keyval-operator/controllers/internal/ops/runtimeconfig"
 	opstatus "github.com/ivelok/keyval-operator/controllers/internal/ops/status"
 	"github.com/ivelok/keyval-operator/controllers/internal/reconcile"
+	"github.com/ivelok/keyval-operator/controllers/internal/resources"
 	runtimepkg "github.com/ivelok/keyval-operator/controllers/internal/runtime"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -303,7 +304,11 @@ func Runtime(ctx context.Context, state *reconcile.State) error {
 
 	// Runtime configuration (redis + sentinel).
 	runtimeResults := make([]opruntimecfg.Result, 0, 2)
-	redisRuntime := opruntimecfg.ApplyRedisRuntime(ctx, deps.Client, deps.ClientFactory, cr, pods, state.Config.ConfigHash, logger.Logr(), deps.Recorder, &state.Security.Settings)
+	redisRuntimeHash := state.Config.RedisRuntimeHash
+	if redisRuntimeHash == "" {
+		redisRuntimeHash = resources.RedisRuntimeHash(cr, &state.Security.Settings)
+	}
+	redisRuntime := opruntimecfg.ApplyRedisRuntime(ctx, deps.Client, deps.ClientFactory, cr, pods, redisRuntimeHash, logger.Logr(), deps.Recorder, &state.Security.Settings)
 	runtimeResults = append(runtimeResults, redisRuntime)
 	if redisRuntime.RequeueAfter > 0 {
 		state.RequeueAfter(redisRuntime.RequeueAfter)
@@ -323,7 +328,11 @@ func Runtime(ctx context.Context, state *reconcile.State) error {
 	}
 
 	if cr.Spec.Mode == keyvalv1alpha1.ModeSentinel {
-		sentinelRuntime := opruntimecfg.ApplySentinelRuntime(ctx, deps.SentinelFactory, cr, sentinelPods, logger.Logr(), deps.Recorder, &state.Security.Settings)
+		sentinelRuntimeHash := state.Config.SentinelRuntimeHash
+		if sentinelRuntimeHash == "" {
+			sentinelRuntimeHash = resources.SentinelRuntimeHash(cr, &state.Security.Settings)
+		}
+		sentinelRuntime := opruntimecfg.ApplySentinelRuntime(ctx, deps.Client, deps.SentinelFactory, cr, sentinelPods, sentinelRuntimeHash, logger.Logr(), deps.Recorder, &state.Security.Settings)
 		runtimeResults = append(runtimeResults, sentinelRuntime)
 		switch sentinelRuntime.Mode {
 		case opruntimecfg.ModeApplied:

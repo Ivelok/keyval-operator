@@ -36,7 +36,9 @@ func Config(ctx context.Context, state *reconcile.State) error {
 	}
 
 	state.Config = reconcile.ConfigState{
-		ConfigHash: resources.ConfigHash(state.Cluster, &state.Security.Settings),
+		ConfigHash:          resources.ConfigHash(state.Cluster, &state.Security.Settings),
+		RedisRuntimeHash:    resources.RedisRuntimeHash(state.Cluster, &state.Security.Settings),
+		SentinelRuntimeHash: resources.SentinelRuntimeHash(state.Cluster, &state.Security.Settings),
 	}
 
 	return nil

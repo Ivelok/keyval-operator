@@ -168,3 +168,42 @@ func TestConfigHash_Changes(t *testing.T) {
 		t.Fatalf("expected hash to change when config changes")
 	}
 }
+
+func TestConfigHash_IgnoresRuntimeKeys(t *testing.T) {
+	t.Parallel()
+	cr := crBase("demo", keyvalv1alpha1.ModeStandalone)
+	sec := &security.Settings{}
+	cr.Spec.RedisConfig = map[string]string{"maxmemory": "256mb"}
+	h1 := ConfigHash(cr, sec)
+	cr.Spec.RedisConfig["maxmemory"] = "512mb"
+	h2 := ConfigHash(cr, sec)
+	if h1 != h2 {
+		t.Fatalf("expected config hash to ignore runtime keys")
+	}
+}
+
+func TestRedisRuntimeHash_Changes(t *testing.T) {
+	t.Parallel()
+	cr := crBase("demo", keyvalv1alpha1.ModeStandalone)
+	sec := &security.Settings{}
+	cr.Spec.RedisConfig = map[string]string{"maxmemory": "256mb"}
+	h1 := RedisRuntimeHash(cr, sec)
+	cr.Spec.RedisConfig["maxmemory"] = "512mb"
+	h2 := RedisRuntimeHash(cr, sec)
+	if h1 == h2 {
+		t.Fatalf("expected runtime hash to change when runtime config changes")
+	}
+}
+
+func TestSentinelRuntimeHash_Changes(t *testing.T) {
+	t.Parallel()
+	cr := crBase("demo", keyvalv1alpha1.ModeSentinel)
+	sec := &security.Settings{}
+	cr.Spec.SentinelConfig = map[string]string{"down-after-milliseconds": "5000"}
+	h1 := SentinelRuntimeHash(cr, sec)
+	cr.Spec.SentinelConfig["down-after-milliseconds"] = "10000"
+	h2 := SentinelRuntimeHash(cr, sec)
+	if h1 == h2 {
+		t.Fatalf("expected sentinel runtime hash to change when runtime config changes")
+	}
+}

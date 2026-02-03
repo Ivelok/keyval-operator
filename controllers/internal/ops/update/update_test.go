@@ -31,6 +31,7 @@ func TestIsConfigDriftReason(t *testing.T) {
 	cases := map[string]bool{
 		"config-hash":                   true,
 		"tls-hash":                      true,
+		"runtime-restart":               true,
 		"resources:redis":               true,
 		"resources:sentinel":            true,
 		"resources:metrics":             true,

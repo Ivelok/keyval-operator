@@ -19,6 +19,8 @@ import (
 const (
 	// ConfigHashAnnotationKey is added to PodTemplate to trigger manual rolling under OnDelete.
 	ConfigHashAnnotationKey = "keyval.ivelok.io/config-hash"
+	// RuntimeHashAnnotationKey tracks runtime-applied configuration changes.
+	RuntimeHashAnnotationKey = "keyval.ivelok.io/runtime-hash"
 	// TLSSecretHashAnnotationKey links PodTemplates to TLS secret content for rollout decisions.
 	TLSSecretHashAnnotationKey = "keyval.ivelok.io/tls-secret-hash"
 )
@@ -48,10 +50,10 @@ func ConfigMap(cr *keyvalv1alpha1.KeyValCluster, sec *security.Settings) *corev1
 
 // ConfigHash computes a stable hash for the effective config content.
 func ConfigHash(cr *keyvalv1alpha1.KeyValCluster, sec *security.Settings) string {
-	redis := buildRedisConfig(cr, sec)
+	redis := buildRedisConfigForRestart(cr, sec)
 	sentinel := ""
 	if cr.Spec.Mode == keyvalv1alpha1.ModeSentinel {
-		sentinel = buildSentinelConfig(cr, sec)
+		sentinel = buildSentinelConfigForRestart(cr, sec)
 	}
 	bootstrap := redisBootstrapScript()
 	liveness := redisLivenessScript()
@@ -77,6 +79,128 @@ func ConfigHash(cr *keyvalv1alpha1.KeyValCluster, sec *security.Settings) string
 		}
 	}
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+// RedisRuntimeHash computes a stable hash for redis runtime-allowed configuration.
+func RedisRuntimeHash(cr *keyvalv1alpha1.KeyValCluster, sec *security.Settings) string {
+	cfg := EffectiveRedisConfig(cr, sec)
+	filtered := filterRedisRuntimeConfig(cfg)
+	return hashConfig(renderKVConfig(filtered))
+}
+
+// SentinelRuntimeHash computes a stable hash for sentinel runtime-allowed configuration.
+func SentinelRuntimeHash(cr *keyvalv1alpha1.KeyValCluster, sec *security.Settings) string {
+	if cr.Spec.Mode != keyvalv1alpha1.ModeSentinel {
+		return hashConfig("")
+	}
+	desired := EffectiveSentinelConfig(cr, sec)
+	filtered := filterSentinelRuntimeConfig(desired)
+	return hashConfig(renderKVConfig(filtered))
+}
+
+func hashConfig(content string) string {
+	h := sha256.New()
+	h.Write([]byte(content))
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+func buildRedisConfigForRestart(cr *keyvalv1alpha1.KeyValCluster, sec *security.Settings) string {
+	content := renderKVConfig(filterRedisRestartConfig(EffectiveRedisConfig(cr, sec)))
+	if !strings.HasSuffix(content, "\n") {
+		content += "\n"
+	}
+	return content + "include /runtime-conf/role.conf\n"
+}
+
+func buildSentinelConfigForRestart(cr *keyvalv1alpha1.KeyValCluster, sec *security.Settings) string {
+	name := cr.Name
+	headless := core.HeadlessName(cr)
+	masterAddr := fmt.Sprintf("%s-0.%s.%s.svc", cr.Name, headless, cr.Namespace)
+	rport, _ := core.RedisPort(cr)
+
+	quorum := int32(1)
+	if cr.Spec.SentinelCount != nil && *cr.Spec.SentinelCount > 0 {
+		quorum = (*cr.Spec.SentinelCount)/2 + 1
+	}
+
+	defaults := EffectiveSentinelConfig(cr, sec)
+	port := defaults["port"]
+	dir := defaults["dir"]
+	resolveHostnames := defaults["sentinel resolve-hostnames"]
+	announceHostnames := defaults["sentinel announce-hostnames"]
+	downAfter := defaults["sentinel down-after-milliseconds"]
+	failoverTimeout := defaults["sentinel failover-timeout"]
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "sentinel monitor %s %s %d %d\n", name, masterAddr, rport, quorum)
+	fmt.Fprintf(&b, "port %s\n", port)
+	fmt.Fprintf(&b, "dir %s\n", dir)
+	fmt.Fprintf(&b, "sentinel resolve-hostnames %s\n", resolveHostnames)
+	fmt.Fprintf(&b, "sentinel announce-hostnames %s\n", announceHostnames)
+	if !IsSentinelRuntimeKey("down-after-milliseconds") {
+		fmt.Fprintf(&b, "sentinel down-after-milliseconds %s %s\n", name, downAfter)
+	}
+	if !IsSentinelRuntimeKey("failover-timeout") {
+		fmt.Fprintf(&b, "sentinel failover-timeout %s %s\n", name, failoverTimeout)
+	}
+	if !IsSentinelRuntimeKey("parallel-syncs") {
+		fmt.Fprintf(&b, "sentinel parallel-syncs %s %s\n", name, defaults["sentinel parallel-syncs"])
+	}
+
+	if pass := defaults["sentinel auth-pass"]; pass != "" {
+		fmt.Fprintf(&b, "sentinel auth-pass %s %s\n", name, pass)
+	}
+	if user := defaults["sentinel auth-user"]; user != "" {
+		fmt.Fprintf(&b, "sentinel auth-user %s %s\n", name, user)
+	}
+	if pass := defaults["requirepass"]; pass != "" {
+		fmt.Fprintf(&b, "requirepass %s\n", pass)
+	}
+	if sec != nil && sec.TLS.Enabled {
+		fmt.Fprintf(&b, "tls-port %s\n", defaults["tls-port"])
+		fmt.Fprintf(&b, "tls-cert-file %s\n", defaults["tls-cert-file"])
+		fmt.Fprintf(&b, "tls-key-file %s\n", defaults["tls-key-file"])
+		fmt.Fprintf(&b, "tls-ca-cert-file %s\n", defaults["tls-ca-cert-file"])
+		fmt.Fprintf(&b, "tls-auth-clients %s\n", defaults["tls-auth-clients"])
+		if repl := defaults["tls-replication"]; repl != "" {
+			fmt.Fprintf(&b, "tls-replication %s\n", repl)
+		}
+	}
+
+	return b.String()
+}
+
+func filterRedisRestartConfig(cfg map[string]string) map[string]string {
+	filtered := make(map[string]string, len(cfg))
+	for key, val := range cfg {
+		if IsRedisRuntimeKey(key) {
+			continue
+		}
+		filtered[key] = val
+	}
+	return filtered
+}
+
+func filterRedisRuntimeConfig(cfg map[string]string) map[string]string {
+	filtered := make(map[string]string, len(cfg))
+	for key, val := range cfg {
+		if !IsRedisRuntimeKey(key) {
+			continue
+		}
+		filtered[key] = val
+	}
+	return filtered
+}
+
+func filterSentinelRuntimeConfig(cfg map[string]string) map[string]string {
+	filtered := make(map[string]string, len(cfg))
+	for _, option := range SentinelRuntimeKeys() {
+		key := fmt.Sprintf("sentinel %s", option)
+		if val, ok := cfg[key]; ok {
+			filtered[key] = val
+		}
+	}
+	return filtered
 }
 
 func buildRedisConfig(cr *keyvalv1alpha1.KeyValCluster, sec *security.Settings) string {
