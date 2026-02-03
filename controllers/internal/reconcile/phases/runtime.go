@@ -6,6 +6,7 @@ import (
 	"time"
 
 	keyvalv1alpha1 "github.com/ivelok/keyval-operator/api/v1alpha1"
+	controllererrors "github.com/ivelok/keyval-operator/controllers/errors"
 	"github.com/ivelok/keyval-operator/controllers/internal/clients"
 	opbootstrap "github.com/ivelok/keyval-operator/controllers/internal/ops/bootstrap"
 	ophealthy "github.com/ivelok/keyval-operator/controllers/internal/ops/health"
@@ -312,6 +313,9 @@ func Runtime(ctx context.Context, state *reconcile.State) error {
 		logger.Info("redis runtime config applied", "changedKeys", redisRuntime.ChangedKeys)
 	case opruntimecfg.ModeNeedsRestart:
 		logger.Info("redis runtime config requires restart", "detail", redisRuntime.Message)
+		if redisRuntime.Err != nil {
+			opobs.IncReconcileErrorClass(cr, controllererrors.Classify(redisRuntime.Err))
+		}
 	case opruntimecfg.ModeFailed:
 		opobs.EventRuntimeConfigFailed(deps.Recorder, cr, redisRuntime.Component, redisRuntime.Err)
 		opobs.IncRuntimeConfigFailed(cr, redisRuntime.Component)

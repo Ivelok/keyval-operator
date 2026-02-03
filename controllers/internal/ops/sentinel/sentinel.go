@@ -52,7 +52,7 @@ func TriggerFailover(ctx context.Context, cr *keyvalv1alpha1.KeyValCluster, redi
 	for _, sp := range candidates {
 		cli, err := sf.ForPod(ctx, sp, sentinelOpts)
 		if err != nil {
-			errs = append(errs, controllererrors.WrapTransient(fmt.Errorf("%s: %w", sp.Name, err)))
+			errs = append(errs, controllererrors.WrapTransient(controllererrors.WrapExternalDependency(fmt.Errorf("%s: %w", sp.Name, err))))
 			continue
 		}
 		sentinel = cli
@@ -74,7 +74,7 @@ func TriggerFailover(ctx context.Context, cr *keyvalv1alpha1.KeyValCluster, redi
 		if errors.Is(failErr, ErrNoGoodSlave) {
 			return "", nil, ErrNoGoodSlave
 		}
-		errs = append(errs, controllererrors.WrapTransient(fmt.Errorf("%s: %w", sp.Name, failErr)))
+		errs = append(errs, controllererrors.WrapTransient(controllererrors.WrapExternalDependency(fmt.Errorf("%s: %w", sp.Name, failErr))))
 		sentinel = nil
 	}
 
@@ -82,7 +82,7 @@ func TriggerFailover(ctx context.Context, cr *keyvalv1alpha1.KeyValCluster, redi
 		if len(errs) == 0 {
 			return "", nil, errors.New("sentinel failover: no reachable sentinel candidates")
 		}
-		return "", nil, controllererrors.WrapTransient(fmt.Errorf("sentinel failover: %w", errors.Join(errs...)))
+		return "", nil, controllererrors.WrapTransient(controllererrors.WrapExternalDependency(fmt.Errorf("sentinel failover: %w", errors.Join(errs...))))
 	}
 
 	var host string
@@ -131,7 +131,7 @@ func TriggerFailover(ctx context.Context, cr *keyvalv1alpha1.KeyValCluster, redi
 
 	_, roles, _, err := opreplication.EnsureReplicationToMaster(ctx, cr, redisPods, rf, masterName, sec)
 	if err != nil {
-		return "", nil, controllererrors.WrapTransient(fmt.Errorf("ensure replication to %s: %w", masterName, err))
+		return "", nil, controllererrors.WrapTransient(controllererrors.WrapExternalDependency(fmt.Errorf("ensure replication to %s: %w", masterName, err)))
 	}
 	observability.IncFailover(cr, observability.FailoverTypeForced)
 	observability.IncFailoverCompleted(cr)

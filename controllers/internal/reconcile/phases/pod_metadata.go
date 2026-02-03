@@ -136,7 +136,7 @@ func syncPodMetadata(ctx context.Context, state *reconcile.State, meta *reconcil
 				continue
 			}
 			metaLogger.Error(err, "patch pod metadata failed", "pod", cur.Name)
-			return controllererrors.WrapTransient(fmt.Errorf("patch pod metadata %s/%s: %w", cur.Namespace, cur.Name, err))
+			return controllererrors.WrapTransient(controllererrors.WrapKubeAPI(fmt.Errorf("patch pod metadata %s/%s: %w", cur.Namespace, cur.Name, err)))
 		}
 		podList[i] = *updated
 	}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -210,6 +211,44 @@ func PlanUpdates(_ context.Context, cr *keyvalv1alpha1.KeyValCluster, ss *appsv1
 	sort.Slice(names, func(i, j int) bool { return core.Ordinal(names[i]) > core.Ordinal(names[j]) })
 
 	return Plan{PodNames: names, Reasons: reasons}
+}
+
+// PlanHasConfigDrift reports whether the plan includes configuration drift reasons.
+func PlanHasConfigDrift(plan Plan) bool {
+	return reasonsContainConfigDrift(plan.Reasons)
+}
+
+// IsConfigDriftReason reports whether the reason indicates configuration drift.
+func IsConfigDriftReason(reason string) bool {
+	switch {
+	case reason == "config-hash":
+		return true
+	case reason == "tls-hash":
+		return true
+	case strings.HasPrefix(reason, "resources:"):
+		return true
+	case strings.HasPrefix(reason, "spec:"):
+		return true
+	case strings.HasPrefix(reason, "metrics:"):
+		return true
+	case strings.HasPrefix(reason, "image:"):
+		return true
+	case strings.HasPrefix(reason, "layout:"):
+		return true
+	default:
+		return false
+	}
+}
+
+func reasonsContainConfigDrift(reasons map[string][]string) bool {
+	for _, podReasons := range reasons {
+		for _, reason := range podReasons {
+			if IsConfigDriftReason(reason) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func appendUniqueReasons(dst []string, extras ...string) []string {

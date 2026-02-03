@@ -59,7 +59,7 @@ func ReconcileServiceLifecycle(ctx context.Context, deps ServiceDependencies, cr
 	if err := deps.Client.Get(ctx, key, &existing); err == nil {
 		existingFound = true
 	} else if !apierrors.IsNotFound(err) {
-		return controllererrors.WrapTransient(fmt.Errorf("get %s service: %w", serviceType, err))
+		return controllererrors.WrapTransient(controllererrors.WrapKubeAPI(fmt.Errorf("get %s service: %w", serviceType, err)))
 	}
 
 	if !opts.Enabled {
@@ -78,7 +78,7 @@ func ReconcileServiceLifecycle(ctx context.Context, deps ServiceDependencies, cr
 			if apierrors.IsNotFound(err) {
 				return nil
 			}
-			return controllererrors.WrapTransient(fmt.Errorf("delete %s service: %w", serviceType, err))
+			return controllererrors.WrapTransient(controllererrors.WrapKubeAPI(fmt.Errorf("delete %s service: %w", serviceType, err)))
 		}
 		svcLogger.Info("service disabled, initiating delete")
 		opobs.EventServiceRemoved(deps.Recorder, cr, serviceType, existing.Name)
@@ -104,7 +104,7 @@ func ReconcileServiceLifecycle(ctx context.Context, deps ServiceDependencies, cr
 				if apierrors.IsNotFound(err) {
 					return nil
 				}
-				return controllererrors.WrapTransient(fmt.Errorf("delete %s service for recreate: %w", serviceType, err))
+				return controllererrors.WrapTransient(controllererrors.WrapKubeAPI(fmt.Errorf("delete %s service for recreate: %w", serviceType, err)))
 			}
 			svcLogger.Info("service deleted to apply immutable change")
 			return nil
@@ -119,7 +119,7 @@ func ReconcileServiceLifecycle(ctx context.Context, deps ServiceDependencies, cr
 		return controllererrors.WrapTransient(fmt.Errorf("set owner on %s service: %w", serviceType, err))
 	}
 	if err := deps.Client.Patch(ctx, applySvc, client.Apply, client.FieldOwner(core.FieldOwner)); err != nil {
-		return controllererrors.WrapTransient(fmt.Errorf("apply %s service: %w", serviceType, err))
+		return controllererrors.WrapTransient(controllererrors.WrapKubeAPI(fmt.Errorf("apply %s service: %w", serviceType, err)))
 	}
 	return nil
 }

@@ -12,6 +12,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	keyvalv1alpha1 "github.com/ivelok/keyval-operator/api/v1alpha1"
+	controllererrors "github.com/ivelok/keyval-operator/controllers/errors"
 )
 
 // Settings aggregates authentication and TLS settings resolved from the cluster spec.
@@ -91,7 +92,7 @@ func FromSpec(ctx context.Context, reader client.Reader, cr *keyvalv1alpha1.KeyV
 		}
 		var secret corev1.Secret
 		if err := reader.Get(ctx, types.NamespacedName{Namespace: cr.Namespace, Name: secretName}, &secret); err != nil {
-			return out, fmt.Errorf("get auth secret %q: %w", secretName, err)
+			return out, controllererrors.WrapFatal(controllererrors.WrapKubeAPI(fmt.Errorf("get auth secret %q: %w", secretName, err)))
 		}
 		key := authSpec.PasswordSecretRef.Key
 		if key == "" {
@@ -116,7 +117,7 @@ func FromSpec(ctx context.Context, reader client.Reader, cr *keyvalv1alpha1.KeyV
 		}
 		var secret corev1.Secret
 		if err := reader.Get(ctx, types.NamespacedName{Namespace: cr.Namespace, Name: tlsSpec.SecretName}, &secret); err != nil {
-			return out, fmt.Errorf("get tls secret %q: %w", tlsSpec.SecretName, err)
+			return out, controllererrors.WrapFatal(controllererrors.WrapKubeAPI(fmt.Errorf("get tls secret %q: %w", tlsSpec.SecretName, err)))
 		}
 		caKey := tlsSpec.CACertKey
 		if caKey == "" {

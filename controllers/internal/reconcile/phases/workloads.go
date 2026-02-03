@@ -69,7 +69,7 @@ func Workloads(ctx context.Context, state *reconcile.State) error {
 		state.RedisTemplateMetadata.PreviousLabels = reconcile.CloneStringMap(existingSS.Spec.Template.Labels)
 		state.RedisTemplateMetadata.PreviousAnnotations = reconcile.CloneStringMap(existingSS.Spec.Template.Annotations)
 	} else if !apierrors.IsNotFound(err) {
-		return controllererrors.WrapTransient(fmt.Errorf("get statefulset: %w", err))
+		return controllererrors.WrapTransient(controllererrors.WrapKubeAPI(fmt.Errorf("get statefulset: %w", err)))
 	}
 
 	prevTLSHash := ""
@@ -97,19 +97,26 @@ func Workloads(ctx context.Context, state *reconcile.State) error {
 				Reason:  conflictConditionReason,
 				Message: message,
 			}
-			state.AbortWithError(controllererrors.WrapFatal(fmt.Errorf("apply redis statefulset conflict: %w", err)))
+			state.AbortWithError(controllererrors.WrapFatal(controllererrors.WrapConflict(fmt.Errorf("apply redis statefulset conflict: %w", err))))
 			return nil
+		}
+		if cause := detectStatefulSetImmutableCause(err); cause != nil {
+			redisLogger.Error(err, "apply redis statefulset immutable field", "field", cause.Field, "detail", cause.Message)
+			opobs.EventRedisApplyFailed(deps.Recorder, cr, err)
+			opobs.IncRedisApplyFailure(cr, opobs.RedisApplyFailureReasonError)
+			wrap := controllererrors.WrapConfigDrift(fmt.Errorf("apply redis statefulset immutable field %s: %w", cause.Field, err))
+			return controllererrors.WrapTransient(wrap)
 		}
 		redisLogger.Error(err, "apply redis statefulset failed")
 		opobs.EventRedisApplyFailed(deps.Recorder, cr, err)
 		opobs.IncRedisApplyFailure(cr, opobs.RedisApplyFailureReasonError)
-		return controllererrors.WrapTransient(fmt.Errorf("apply statefulset: %w", err))
+		return controllererrors.WrapTransient(controllererrors.WrapKubeAPI(fmt.Errorf("apply statefulset: %w", err)))
 	}
 	state.RedisStatefulSet = ssApply.DeepCopy()
 
 	pods, err := runtimepkg.ListStatefulSetPods(ctx, deps.Client, ssApply)
 	if err != nil {
-		return controllererrors.WrapTransient(fmt.Errorf("list pods: %w", err))
+		return controllererrors.WrapTransient(controllererrors.WrapKubeAPI(fmt.Errorf("list pods: %w", err)))
 	}
 	if deps.ObserveGracefulShutdown != nil {
 		deps.ObserveGracefulShutdown(cr, pods)
@@ -143,12 +150,12 @@ func Workloads(ctx context.Context, state *reconcile.State) error {
 				if isOwned {
 					logger.Info("deleting sentinel statefulset because mode is not Sentinel", "statefulset", ssSentName)
 					if err := deps.Client.Delete(ctx, &existingSentinel, client.PropagationPolicy(metav1.DeletePropagationForeground)); err != nil {
-						return controllererrors.WrapTransient(fmt.Errorf("delete sentinel statefulset: %w", err))
+						return controllererrors.WrapTransient(controllererrors.WrapKubeAPI(fmt.Errorf("delete sentinel statefulset: %w", err)))
 					}
 				}
 			}
 		} else if !apierrors.IsNotFound(err) {
-			return controllererrors.WrapTransient(fmt.Errorf("get sentinel statefulset: %w", err))
+			return controllererrors.WrapTransient(controllererrors.WrapKubeAPI(fmt.Errorf("get sentinel statefulset: %w", err)))
 		}
 		return nil
 	}
@@ -161,7 +168,7 @@ func Workloads(ctx context.Context, state *reconcile.State) error {
 		state.SentinelTemplateMetadata.PreviousLabels = reconcile.CloneStringMap(existingSentinel.Spec.Template.Labels)
 		state.SentinelTemplateMetadata.PreviousAnnotations = reconcile.CloneStringMap(existingSentinel.Spec.Template.Annotations)
 	} else if err != nil && !apierrors.IsNotFound(err) {
-		return controllererrors.WrapTransient(fmt.Errorf("get sentinel statefulset: %w", err))
+		return controllererrors.WrapTransient(controllererrors.WrapKubeAPI(fmt.Errorf("get sentinel statefulset: %w", err)))
 	}
 	ssSentApply := ssa.StatefulSet(ssSent)
 	if err := controllerutil.SetOwnerReference(cr, ssSentApply, deps.Scheme); err != nil {
@@ -180,7 +187,7 @@ func Workloads(ctx context.Context, state *reconcile.State) error {
 			sentinelLogger.Error(err, "apply sentinel statefulset conflict", "manager", conflict.Manager, "field", conflict.Field)
 			opobs.EventSentinelApplyConflict(deps.Recorder, cr, conflict.Manager, conflict.Field, conflict.Message)
 			opobs.IncSentinelApplyFailure(cr, opobs.SentinelApplyFailureReasonConflict)
-			state.AbortWithError(controllererrors.WrapFatal(fmt.Errorf("apply sentinel statefulset conflict: %w", err)))
+			state.AbortWithError(controllererrors.WrapFatal(controllererrors.WrapConflict(fmt.Errorf("apply sentinel statefulset conflict: %w", err))))
 			return nil
 		}
 		if cause := detectSentinelImmutableCause(err); cause != nil {
@@ -198,13 +205,13 @@ func Workloads(ctx context.Context, state *reconcile.State) error {
 			sentinelLogger.Error(err, "apply sentinel statefulset failed", "field", "")
 			opobs.EventSentinelApplyFailed(deps.Recorder, cr, err)
 			opobs.IncSentinelApplyFailure(cr, opobs.SentinelApplyFailureReasonError)
-			return controllererrors.WrapTransient(fmt.Errorf("apply sentinel statefulset: %w", err))
+			return controllererrors.WrapTransient(controllererrors.WrapKubeAPI(fmt.Errorf("apply sentinel statefulset: %w", err)))
 		}
 	}
 
 	sentinelPods, err := runtimepkg.ListStatefulSetPods(ctx, deps.Client, ssSentApply)
 	if err != nil {
-		return controllererrors.WrapTransient(fmt.Errorf("list sentinel pods: %w", err))
+		return controllererrors.WrapTransient(controllererrors.WrapKubeAPI(fmt.Errorf("list sentinel pods: %w", err)))
 	}
 	if deps.ObserveGracefulShutdown != nil {
 		deps.ObserveGracefulShutdown(cr, sentinelPods)
@@ -221,12 +228,12 @@ func Workloads(ctx context.Context, state *reconcile.State) error {
 	return nil
 }
 
-type sentinelImmutableCause struct {
+type immutableCause struct {
 	Field   string
 	Message string
 }
 
-func detectSentinelImmutableCause(err error) *sentinelImmutableCause {
+func detectImmutableCause(err error, match func(metav1.StatusCause) bool) *immutableCause {
 	if err == nil || !apierrors.IsInvalid(err) {
 		return nil
 	}
@@ -235,10 +242,10 @@ func detectSentinelImmutableCause(err error) *sentinelImmutableCause {
 		return nil
 	}
 	details := statusErr.Status().Details
-	if details != nil {
+	if details != nil && match != nil {
 		for i := range details.Causes {
 			cause := details.Causes[i]
-			if isSentinelImmutableCause(cause) {
+			if match(cause) {
 				field := cause.Field
 				if field == "" {
 					field = "spec"
@@ -247,15 +254,25 @@ func detectSentinelImmutableCause(err error) *sentinelImmutableCause {
 				if msg == "" {
 					msg = statusErr.Status().Message
 				}
-				return &sentinelImmutableCause{Field: field, Message: msg}
+				return &immutableCause{Field: field, Message: msg}
 			}
 		}
 	}
 	message := statusErr.Status().Message
 	if containsImmutableHint(message) {
-		return &sentinelImmutableCause{Field: "spec", Message: message}
+		return &immutableCause{Field: "spec", Message: message}
 	}
 	return nil
+}
+
+func detectStatefulSetImmutableCause(err error) *immutableCause {
+	return detectImmutableCause(err, func(cause metav1.StatusCause) bool {
+		return containsImmutableHint(cause.Message)
+	})
+}
+
+func detectSentinelImmutableCause(err error) *immutableCause {
+	return detectImmutableCause(err, isSentinelImmutableCause)
 }
 
 func containsImmutableHint(message string) bool {

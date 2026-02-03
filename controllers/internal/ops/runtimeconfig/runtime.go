@@ -132,7 +132,7 @@ func ApplyRedisRuntime(
 	for _, pod := range pods {
 		client, err := factory.ForPod(ctx, pod, clientOpts)
 		if err != nil {
-			wrap := controllererrors.WrapTransient(fmt.Errorf("redis client for %s: %w", pod.Name, err))
+			wrap := controllererrors.WrapTransient(controllererrors.WrapExternalDependency(fmt.Errorf("redis client for %s: %w", pod.Name, err)))
 			return Result{Component: "redis"}.withError(wrap, fmt.Sprintf("redis client for %s", pod.Name))
 		}
 		defer closeIfPossible(client)
@@ -145,7 +145,7 @@ func ApplyRedisRuntime(
 			desiredVal := normalizeRedisValue(key, desiredRaw)
 			current, ok, err := client.ConfigGet(ctx, key)
 			if err != nil {
-				wrap := controllererrors.WrapTransient(fmt.Errorf("CONFIG GET %s: %w", key, err))
+				wrap := controllererrors.WrapTransient(controllererrors.WrapExternalDependency(fmt.Errorf("CONFIG GET %s: %w", key, err)))
 				return Result{Component: "redis"}.withError(wrap, fmt.Sprintf("CONFIG GET %s", key))
 			}
 			if !ok {
@@ -172,6 +172,7 @@ func ApplyRedisRuntime(
 			} else if res.Message == "" {
 				res.Message = "redis config change requires restart"
 			}
+			res.Err = controllererrors.WrapConfigDrift(fmt.Errorf("redis runtime config requires restart: %s", res.Message))
 			return res
 		}
 		if len(pending) > 0 {
@@ -181,7 +182,7 @@ func ApplyRedisRuntime(
 
 	if len(perPodChanges) == 0 {
 		if err := patchConfigHashAnnotations(ctx, kube, pods, desiredHash); err != nil {
-			wrap := controllererrors.WrapTransient(fmt.Errorf("patch redis pod annotations: %w", err))
+			wrap := controllererrors.WrapTransient(controllererrors.WrapKubeAPI(fmt.Errorf("patch redis pod annotations: %w", err)))
 			return Result{Component: "redis"}.withError(wrap, "patch redis pod annotations")
 		}
 		res.Mode = ModeNoChange
@@ -196,14 +197,14 @@ func ApplyRedisRuntime(
 		}
 		client, err := factory.ForPod(ctx, pod, clientOpts)
 		if err != nil {
-			wrap := controllererrors.WrapTransient(fmt.Errorf("redis client for %s: %w", pod.Name, err))
+			wrap := controllererrors.WrapTransient(controllererrors.WrapExternalDependency(fmt.Errorf("redis client for %s: %w", pod.Name, err)))
 			return Result{Component: "redis"}.withError(wrap, fmt.Sprintf("redis client for %s", pod.Name))
 		}
 		defer closeIfPossible(client)
 
 		for key, val := range opChanges {
 			if err := client.ConfigSet(ctx, key, val); err != nil {
-				wrap := controllererrors.WrapTransient(fmt.Errorf("CONFIG SET %s: %w", key, err))
+				wrap := controllererrors.WrapTransient(controllererrors.WrapExternalDependency(fmt.Errorf("CONFIG SET %s: %w", key, err)))
 				return Result{Component: "redis"}.withError(wrap, fmt.Sprintf("CONFIG SET %s", key))
 			}
 		}
@@ -218,15 +219,17 @@ func ApplyRedisRuntime(
 				} else {
 					res.Message = "redis config rewrite requires restart"
 				}
+				res.Err = controllererrors.WrapConfigDrift(fmt.Errorf("redis runtime config requires restart: %s", res.Message))
 				return res
 			}
-			wrap := controllererrors.WrapTransient(fmt.Errorf("CONFIG REWRITE %s: %w", pod.Name, err))
+			wrap := controllererrors.WrapTransient(controllererrors.WrapExternalDependency(fmt.Errorf("CONFIG REWRITE %s: %w", pod.Name, err)))
 			return Result{Component: "redis"}.withError(wrap, fmt.Sprintf("CONFIG REWRITE %s", pod.Name))
 		}
 	}
 
 	if err := patchConfigHashAnnotations(ctx, kube, pods, desiredHash); err != nil {
-		return Result{Component: "redis"}.withError(err, "patch redis pod annotations")
+		wrap := controllererrors.WrapTransient(controllererrors.WrapKubeAPI(fmt.Errorf("patch redis pod annotations: %w", err)))
+		return Result{Component: "redis"}.withError(wrap, "patch redis pod annotations")
 	}
 
 	keysList := collectChangedKeys(changedKeys)
@@ -313,7 +316,7 @@ func ApplySentinelRuntime(
 	}
 	client, err := factory.ForPod(ctx, sentinelPods[0], clientspkg.SentinelOptions{Username: username, Password: password, TLSConfig: tlsConfig})
 	if err != nil {
-		wrap := controllererrors.WrapTransient(fmt.Errorf("get sentinel client: %w", err))
+		wrap := controllererrors.WrapTransient(controllererrors.WrapExternalDependency(fmt.Errorf("get sentinel client: %w", err)))
 		return Result{Component: "sentinel"}.withError(wrap, "get sentinel client")
 	}
 	defer closeIfPossible(client)
@@ -347,7 +350,7 @@ func ApplySentinelRuntime(
 
 	for option, val := range pending {
 		if err := client.Set(ctx, cr.Name, option, val); err != nil {
-			wrap := controllererrors.WrapTransient(fmt.Errorf("SENTINEL SET %s: %w", option, err))
+			wrap := controllererrors.WrapTransient(controllererrors.WrapExternalDependency(fmt.Errorf("SENTINEL SET %s: %w", option, err)))
 			return Result{Component: "sentinel"}.withError(wrap, fmt.Sprintf("SENTINEL SET %s", option))
 		}
 	}

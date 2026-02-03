@@ -153,14 +153,14 @@ func Ensure(ctx context.Context, opts Options) (Result, error) {
 	client, err := opts.ClientFactory.ForPod(ctx, *pod, opts.ClientOptions)
 	if err != nil {
 		res.Condition = makeCondition(metav1.ConditionFalse, "ClientInit", fmt.Sprintf("create redis client: %v", err))
-		return res, controllererrors.WrapTransient(fmt.Errorf("redis client for %s: %w", pod.Name, err))
+		return res, controllererrors.WrapTransient(controllererrors.WrapExternalDependency(fmt.Errorf("redis client for %s: %w", pod.Name, err)))
 	}
 
 	if status.State == importStatePending && abortIfData {
 		size, err := client.DBSize(ctx)
 		if err != nil {
 			res.Condition = makeCondition(metav1.ConditionFalse, "DBSize", fmt.Sprintf("query dbsize: %v", err))
-			return res, controllererrors.WrapTransient(fmt.Errorf("dbsize: %w", err))
+			return res, controllererrors.WrapTransient(controllererrors.WrapExternalDependency(fmt.Errorf("dbsize: %w", err)))
 		}
 		if size > 0 {
 			status.State = importStateFailed
@@ -194,13 +194,13 @@ func Ensure(ctx context.Context, opts Options) (Result, error) {
 
 	if err := configureMasterAuth(ctx, client, cfg.Username, cfg.Password); err != nil {
 		res.Condition = makeCondition(metav1.ConditionFalse, "MasterAuth", err.Error())
-		return res, controllererrors.WrapTransient(fmt.Errorf("configure master auth: %w", err))
+		return res, controllererrors.WrapTransient(controllererrors.WrapExternalDependency(fmt.Errorf("configure master auth: %w", err)))
 	}
 
 	info, err := client.ReplicationInfo(ctx)
 	if err != nil {
 		res.Condition = makeCondition(metav1.ConditionFalse, "ReplicationInfo", fmt.Sprintf("query replication info: %v", err))
-		return res, controllererrors.WrapTransient(fmt.Errorf("replication info: %w", err))
+		return res, controllererrors.WrapTransient(controllererrors.WrapExternalDependency(fmt.Errorf("replication info: %w", err)))
 	}
 
 	attached := strings.EqualFold(info.MasterHost, cfg.Host) && info.MasterPort == cfg.Port
@@ -208,11 +208,11 @@ func Ensure(ctx context.Context, opts Options) (Result, error) {
 		if err := ensureExternalReachable(ctx, cfg); err != nil {
 			res.Condition = makeCondition(metav1.ConditionFalse, "SourceUnavailable", err.Error())
 			res.RequeueAfter = 5 * time.Second
-			return res, controllererrors.WrapTransient(err)
+			return res, controllererrors.WrapTransient(controllererrors.WrapExternalDependency(err))
 		}
 		if err := client.ReplicaOf(ctx, cfg.Host, cfg.Port); err != nil {
 			res.Condition = makeCondition(metav1.ConditionFalse, "ReplicaOf", fmt.Sprintf("replicaof %s: %v", cfg.Addr, err))
-			return res, controllererrors.WrapTransient(fmt.Errorf("replicaof %s: %w", cfg.Addr, err))
+			return res, controllererrors.WrapTransient(controllererrors.WrapExternalDependency(fmt.Errorf("replicaof %s: %w", cfg.Addr, err)))
 		}
 		attached = true
 	}
@@ -276,7 +276,7 @@ func Ensure(ctx context.Context, opts Options) (Result, error) {
 
 	if err := client.NoOne(ctx); err != nil {
 		res.Condition = makeCondition(metav1.ConditionFalse, "Promote", fmt.Sprintf("replicaof no one: %v", err))
-		return res, controllererrors.WrapTransient(fmt.Errorf("replicaof no one: %w", err))
+		return res, controllererrors.WrapTransient(controllererrors.WrapExternalDependency(fmt.Errorf("replicaof no one: %w", err)))
 	}
 
 	if err := clearMasterAuth(ctx, client); err != nil {
@@ -347,12 +347,12 @@ func finalizeImport(ctx context.Context, opts Options, res Result) (Result, erro
 	client, err := opts.ClientFactory.ForPod(ctx, *pod, opts.ClientOptions)
 	if err != nil {
 		res.Condition = makeCondition(metav1.ConditionFalse, "ClientInit", fmt.Sprintf("create redis client: %v", err))
-		return res, controllererrors.WrapTransient(fmt.Errorf("redis client for %s: %w", pod.Name, err))
+		return res, controllererrors.WrapTransient(controllererrors.WrapExternalDependency(fmt.Errorf("redis client for %s: %w", pod.Name, err)))
 	}
 
 	if err := client.NoOne(ctx); err != nil {
 		res.Condition = makeCondition(metav1.ConditionFalse, "Promote", fmt.Sprintf("replicaof no one: %v", err))
-		return res, controllererrors.WrapTransient(fmt.Errorf("replicaof no one: %w", err))
+		return res, controllererrors.WrapTransient(controllererrors.WrapExternalDependency(fmt.Errorf("replicaof no one: %w", err)))
 	}
 	if err := clearMasterAuth(ctx, client); err != nil {
 		logger.Info("failed to clear master auth", "error", err)
@@ -378,21 +378,21 @@ func buildExternalConfig(ctx context.Context, opts Options) (externalConfig, err
 	var cfg externalConfig
 	address := strings.TrimSpace(opts.Spec.Address)
 	if address == "" {
-		return cfg, fmt.Errorf("external source address is empty")
+		return cfg, controllererrors.WrapInvalidSpec(fmt.Errorf("external source address is empty"))
 	}
 	u, err := url.Parse(address)
 	if err != nil {
-		return cfg, fmt.Errorf("parse address %q: %w", address, err)
+		return cfg, controllererrors.WrapInvalidSpec(fmt.Errorf("parse address %q: %w", address, err))
 	}
 	host := u.Hostname()
 	if host == "" {
-		return cfg, fmt.Errorf("address %q missing host", address)
+		return cfg, controllererrors.WrapInvalidSpec(fmt.Errorf("address %q missing host", address))
 	}
 	port := 6379
 	if p := u.Port(); p != "" {
 		parsed, perr := net.LookupPort("tcp", p)
 		if perr != nil {
-			return cfg, fmt.Errorf("address %q invalid port: %w", address, perr)
+			return cfg, controllererrors.WrapInvalidSpec(fmt.Errorf("address %q invalid port: %w", address, perr))
 		}
 		port = parsed
 	}
@@ -479,7 +479,7 @@ func buildTLSConfig(ctx context.Context, opts Options, serverName string) (*tls.
 		}
 		cert, err := tls.X509KeyPair(certData, keyData)
 		if err != nil {
-			return nil, fmt.Errorf("parse tls client key pair: %w", err)
+			return nil, controllererrors.WrapInvalidSpec(fmt.Errorf("parse tls client key pair: %w", err))
 		}
 		config.Certificates = []tls.Certificate{cert}
 	}
@@ -488,20 +488,20 @@ func buildTLSConfig(ctx context.Context, opts Options, serverName string) (*tls.
 
 func readSecretKey(ctx context.Context, c client.Client, namespace string, sel *corev1.SecretKeySelector) ([]byte, error) {
 	if sel == nil {
-		return nil, fmt.Errorf("secret selector is nil")
+		return nil, controllererrors.WrapInvalidSpec(fmt.Errorf("secret selector is nil"))
 	}
 	name := sel.Name
 	key := sel.Key
 	if name == "" || key == "" {
-		return nil, fmt.Errorf("secret selector missing name or key")
+		return nil, controllererrors.WrapInvalidSpec(fmt.Errorf("secret selector missing name or key"))
 	}
 	var secret corev1.Secret
 	if err := c.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, &secret); err != nil {
-		return nil, fmt.Errorf("get secret %q: %w", name, err)
+		return nil, controllererrors.WrapKubeAPI(fmt.Errorf("get secret %q: %w", name, err))
 	}
 	val, ok := secret.Data[key]
 	if !ok {
-		return nil, fmt.Errorf("secret %q missing key %q", name, key)
+		return nil, controllererrors.WrapInvalidSpec(fmt.Errorf("secret %q missing key %q", name, key))
 	}
 	out := make([]byte, len(val))
 	copy(out, val)

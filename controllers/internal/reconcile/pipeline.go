@@ -319,6 +319,9 @@ func (p *Pipeline) Run(ctx context.Context, req ctrl.Request) (res ctrl.Result, 
 		case res.RequeueAfter > 0:
 			result = opobs.ReconcileResultStalled
 		}
+		if err != nil {
+			opobs.IncReconcileErrorClass(cluster, controllererrors.Classify(err))
+		}
 		opobs.IncReconcileResult(cluster, result)
 		opobs.ObserveReconcile(cluster, time.Since(start))
 	}()
@@ -340,7 +343,7 @@ func (p *Pipeline) Run(ctx context.Context, req ctrl.Request) (res ctrl.Result, 
 		if errors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}
-		return ctrl.Result{}, controllererrors.WrapTransient(fmt.Errorf("get KeyValCluster: %w", err))
+		return ctrl.Result{}, controllererrors.WrapTransient(controllererrors.WrapKubeAPI(fmt.Errorf("get KeyValCluster: %w", err)))
 	}
 
 	if p.handler == nil {

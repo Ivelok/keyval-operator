@@ -11,6 +11,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	keyvalv1alpha1 "github.com/ivelok/keyval-operator/api/v1alpha1"
+	controllererrors "github.com/ivelok/keyval-operator/controllers/errors"
+	"github.com/ivelok/keyval-operator/controllers/logging"
 )
 
 // TLSDigest computes a stable hash for the TLS secret used by the cluster.
@@ -25,6 +27,10 @@ func TLSDigest(ctx context.Context, reader client.Reader, cr *keyvalv1alpha1.Key
 	}
 	var secret corev1.Secret
 	if err := reader.Get(ctx, types.NamespacedName{Namespace: cr.Namespace, Name: secretName}, &secret); err != nil {
+		logger := logging.FromContext(ctx)
+		if !logger.IsZero() {
+			logger.V(1).Info("tls digest secret read failed", "error", controllererrors.WrapKubeAPI(err), "secret", secretName)
+		}
 		return "", false
 	}
 	h := sha256.New()
