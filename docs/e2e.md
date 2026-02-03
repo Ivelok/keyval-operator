@@ -41,6 +41,7 @@ The E2E harness also removes lingering PVCs labeled `keyvalcluster=<name>` befor
 | `E2E_TIMEOUT` | `15m` | `go test` timeout. |
 | `KEEP_RESOURCES` | `0` | Set to `1/true` to keep CRs/pods after the suite finishes. |
 | `KEEP_ARTIFACTS` | `0` | When enabled, saves state YAML and pod listings to `test/e2e/artifacts/`; automatically enabled on failure. |
+| `E2E_ALLOW_DIRTY_NAMESPACE` | `0` | Allow running against a namespace that already contains `KeyValCluster` objects. |
 | `E2E_REDIS_IMAGE` | `valkey/valkey:7.2` | Override the Redis/Valkey image used in the scenarios. |
 | `E2E_SENTINEL_IMAGE` | _(empty)_ | Custom Sentinel sidecar image; defaults to the main image when left empty. |
 

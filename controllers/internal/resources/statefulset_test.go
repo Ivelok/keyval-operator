@@ -2,6 +2,7 @@ package resources
 
 import (
 	"fmt"
+	"strconv"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -86,17 +87,24 @@ func TestStatefulSetIncludesBootstrapInitContainer(t *testing.T) {
 		t.Fatalf("expected redis container to have exec liveness probe")
 	} else if cmd := probe.Exec.Command; len(cmd) != 2 || cmd[0] != "sh" || cmd[1] != LivenessScriptPath {
 		t.Fatalf("unexpected liveness probe command: %#v", probe.Exec.Command)
+	} else if probe.TimeoutSeconds != int32(redisProbeTimeoutSeconds+1) {
+		t.Fatalf("expected liveness probe timeout %d, got %d", redisProbeTimeoutSeconds+1, probe.TimeoutSeconds)
 	}
 	if probe := redisContainer.ReadinessProbe; probe == nil || probe.Exec == nil {
 		t.Fatalf("expected redis container to have exec readiness probe")
 	} else if cmd := probe.Exec.Command; len(cmd) != 2 || cmd[0] != "sh" || cmd[1] != ReadinessScriptPath {
 		t.Fatalf("unexpected readiness probe command: %#v", probe.Exec.Command)
+	} else if probe.TimeoutSeconds != int32(redisProbeTimeoutSeconds+1) {
+		t.Fatalf("expected readiness probe timeout %d, got %d", redisProbeTimeoutSeconds+1, probe.TimeoutSeconds)
 	}
 	if !hasMount(redisContainer.VolumeMounts, core.RuntimeConfigVolumeName, "/runtime-conf") {
 		t.Fatalf("expected redis container to mount runtime-conf volume")
 	}
 	if val := envVal(redisContainer.Env, "REDIS_PORT"); val != "6379" {
 		t.Fatalf("expected REDIS_PORT env to be 6379, got %q", val)
+	}
+	if val := envVal(redisContainer.Env, "REDIS_PROBE_TIMEOUT"); val != strconv.Itoa(redisProbeTimeoutSeconds) {
+		t.Fatalf("expected REDIS_PROBE_TIMEOUT env to be %d, got %q", redisProbeTimeoutSeconds, val)
 	}
 	if lifecycle := redisContainer.Lifecycle; lifecycle == nil || lifecycle.PreStop == nil || lifecycle.PreStop.Exec == nil {
 		t.Fatalf("expected redis container to have preStop lifecycle")

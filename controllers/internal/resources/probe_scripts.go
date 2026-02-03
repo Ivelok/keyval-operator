@@ -1,6 +1,9 @@
 package resources
 
-import "strings"
+import (
+	"strconv"
+	"strings"
+)
 
 const (
 	LivenessScriptKey   = "liveness.sh"
@@ -9,6 +12,8 @@ const (
 	ReadinessScriptPath = "/conf/" + ReadinessScriptKey
 
 	redisReadinessDefaultMaxLastIOSeconds = "15"
+	redisProbeTimeoutSeconds              = 2
+	redisProbeTimeoutToken                = "__REDIS_PROBE_TIMEOUT__"
 )
 
 const redisLivenessScriptRaw = `#!/bin/sh
@@ -16,50 +21,36 @@ set -eu
 
 host="${REDIS_PROBE_HOST:-127.0.0.1}"
 port="${REDIS_PORT:-6379}"
-timeout="${REDIS_PROBE_TIMEOUT:-2}"
+timeout="${REDIS_PROBE_TIMEOUT:-` + redisProbeTimeoutToken + `}"
 
 tls_enabled=$(printf '%s' "${TLS_ENABLED:-false}" | tr '[:upper:]' '[:lower:]')
-
-add_arg() {
-  value=$(printf '%s' "$1" | sed "s/'/'\\''/g")
-  cmd="${cmd} '${value}'"
-}
+supports_timeout="0"
+if redis-cli --help 2>/dev/null | grep -q " -t <timeout>"; then
+  supports_timeout="1"
+fi
 
 redis_cli() {
-  cmd=""
-  if command -v timeout >/dev/null 2>&1; then
-    add_arg "timeout"
-    add_arg "${timeout}s"
+  cmd_args="$*"
+  set -- redis-cli -h "$host" -p "$port"
+  if [ "$supports_timeout" = "1" ]; then
+    set -- "$@" -t "$timeout"
   fi
-  add_arg "redis-cli"
-  add_arg "-h"
-  add_arg "${host}"
-  add_arg "-p"
-  add_arg "${port}"
   if [ "$tls_enabled" = "true" ]; then
-    add_arg "--tls"
+    set -- "$@" --tls
     if [ -n "${TLS_CA_FILE:-}" ]; then
-      add_arg "--cacert"
-      add_arg "${TLS_CA_FILE}"
+      set -- "$@" --cacert "$TLS_CA_FILE"
     fi
     if [ -n "${TLS_CERT_FILE:-}" ] && [ -n "${TLS_KEY_FILE:-}" ]; then
-      add_arg "--cert"
-      add_arg "${TLS_CERT_FILE}"
-      add_arg "--key"
-      add_arg "${TLS_KEY_FILE}"
+      set -- "$@" --cert "$TLS_CERT_FILE" --key "$TLS_KEY_FILE"
     fi
   fi
   if [ -n "${MASTER_USER:-}" ]; then
-    add_arg "--user"
-    add_arg "${MASTER_USER}"
+    set -- "$@" --user "$MASTER_USER"
   fi
-  if [ $# -gt 0 ]; then
-    while [ "$#" -gt 0 ]; do
-      add_arg "$1"
-      shift
-    done
+  if [ -n "$cmd_args" ]; then
+    set -- "$@" $cmd_args
   fi
-  eval "command ${cmd}"
+  command "$@"
 }
 
 redis_cli PING
@@ -70,51 +61,37 @@ set -eu
 
 host="${REDIS_PROBE_HOST:-127.0.0.1}"
 port="${REDIS_PORT:-6379}"
-timeout="${REDIS_PROBE_TIMEOUT:-2}"
+timeout="${REDIS_PROBE_TIMEOUT:-` + redisProbeTimeoutToken + `}"
 max_last_io="${REDIS_READINESS_MAX_LAST_IO_SECONDS:-` + redisReadinessDefaultMaxLastIOSeconds + `}"
 
 tls_enabled=$(printf '%s' "${TLS_ENABLED:-false}" | tr '[:upper:]' '[:lower:]')
-
-add_arg() {
-  value=$(printf '%s' "$1" | sed "s/'/'\\''/g")
-  cmd="${cmd} '${value}'"
-}
+supports_timeout="0"
+if redis-cli --help 2>/dev/null | grep -q " -t <timeout>"; then
+  supports_timeout="1"
+fi
 
 redis_cli() {
-  cmd=""
-  if command -v timeout >/dev/null 2>&1; then
-    add_arg "timeout"
-    add_arg "${timeout}s"
+  cmd_args="$*"
+  set -- redis-cli -h "$host" -p "$port"
+  if [ "$supports_timeout" = "1" ]; then
+    set -- "$@" -t "$timeout"
   fi
-  add_arg "redis-cli"
-  add_arg "-h"
-  add_arg "${host}"
-  add_arg "-p"
-  add_arg "${port}"
   if [ "$tls_enabled" = "true" ]; then
-    add_arg "--tls"
+    set -- "$@" --tls
     if [ -n "${TLS_CA_FILE:-}" ]; then
-      add_arg "--cacert"
-      add_arg "${TLS_CA_FILE}"
+      set -- "$@" --cacert "$TLS_CA_FILE"
     fi
     if [ -n "${TLS_CERT_FILE:-}" ] && [ -n "${TLS_KEY_FILE:-}" ]; then
-      add_arg "--cert"
-      add_arg "${TLS_CERT_FILE}"
-      add_arg "--key"
-      add_arg "${TLS_KEY_FILE}"
+      set -- "$@" --cert "$TLS_CERT_FILE" --key "$TLS_KEY_FILE"
     fi
   fi
   if [ -n "${MASTER_USER:-}" ]; then
-    add_arg "--user"
-    add_arg "${MASTER_USER}"
+    set -- "$@" --user "$MASTER_USER"
   fi
-  if [ $# -gt 0 ]; then
-    while [ "$#" -gt 0 ]; do
-      add_arg "$1"
-      shift
-    done
+  if [ -n "$cmd_args" ]; then
+    set -- "$@" $cmd_args
   fi
-  eval "command ${cmd}"
+  command "$@"
 }
 
 info="$(redis_cli --raw INFO replication | tr -d '\r')"
@@ -166,9 +143,14 @@ esac
 `
 
 func redisLivenessScript() string {
-	return strings.TrimSpace(redisLivenessScriptRaw) + "\n"
+	return renderProbeScript(redisLivenessScriptRaw)
 }
 
 func redisReadinessScript() string {
-	return strings.TrimSpace(redisReadinessScriptRaw) + "\n"
+	return renderProbeScript(redisReadinessScriptRaw)
+}
+
+func renderProbeScript(raw string) string {
+	script := strings.ReplaceAll(raw, redisProbeTimeoutToken, strconv.Itoa(redisProbeTimeoutSeconds))
+	return strings.TrimSpace(script) + "\n"
 }

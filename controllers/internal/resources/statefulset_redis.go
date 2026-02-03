@@ -3,6 +3,7 @@ package resources
 import (
 	"fmt"
 	"path"
+	"strconv"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -146,9 +147,19 @@ func buildPodSpec(cr *keyvalv1alpha1.KeyValCluster, sec *security.Settings) core
 		Resources:       ValueOrEmptyResources(cr.Spec.Resources),
 		SecurityContext: containerSecurityContext(true),
 	}
-	redisContainer.Env = append(redisContainer.Env, corev1.EnvVar{Name: "REDIS_PORT", Value: rportStr})
-	redisContainer.LivenessProbe = &corev1.Probe{ProbeHandler: corev1.ProbeHandler{Exec: &corev1.ExecAction{Command: []string{"sh", LivenessScriptPath}}}}
-	redisContainer.ReadinessProbe = &corev1.Probe{ProbeHandler: corev1.ProbeHandler{Exec: &corev1.ExecAction{Command: []string{"sh", ReadinessScriptPath}}}}
+	redisContainer.Env = append(redisContainer.Env,
+		corev1.EnvVar{Name: "REDIS_PORT", Value: rportStr},
+		corev1.EnvVar{Name: "REDIS_PROBE_TIMEOUT", Value: strconv.Itoa(redisProbeTimeoutSeconds)},
+	)
+	probeTimeoutSeconds := int32(redisProbeTimeoutSeconds + 1)
+	redisContainer.LivenessProbe = &corev1.Probe{
+		TimeoutSeconds: probeTimeoutSeconds,
+		ProbeHandler:   corev1.ProbeHandler{Exec: &corev1.ExecAction{Command: []string{"sh", LivenessScriptPath}}},
+	}
+	redisContainer.ReadinessProbe = &corev1.Probe{
+		TimeoutSeconds: probeTimeoutSeconds,
+		ProbeHandler:   corev1.ProbeHandler{Exec: &corev1.ExecAction{Command: []string{"sh", ReadinessScriptPath}}},
+	}
 	containers := []corev1.Container{redisContainer}
 	if metricsOn {
 		containers = append(containers, buildMetricsContainer(cr, sec, rportStr, mport))

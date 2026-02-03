@@ -10,7 +10,9 @@ import (
 	"net/http"
 	"os"
 	"runtime"
+	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -103,6 +105,7 @@ func New(t *testing.T) *Harness {
 	}
 
 	h.ensureNamespace()
+	h.preflightNamespace()
 	releaseSlot := acquireSuiteSlot()
 	t.Cleanup(releaseSlot)
 	t.Cleanup(h.cleanup)
@@ -256,6 +259,27 @@ func (h *Harness) ensureNamespace() {
 	}
 }
 
+func (h *Harness) preflightNamespace() {
+	if allowDirtyNamespace() {
+		return
+	}
+	ctx, cancel := context.WithTimeout(h.ctx, 30*time.Second)
+	defer cancel()
+	var clusters keyvalv1alpha1.KeyValClusterList
+	if err := h.client.List(ctx, &clusters, client.InNamespace(h.namespace)); err != nil {
+		h.t.Fatalf("preflight: list keyvalclusters in %s: %v", h.namespace, err)
+	}
+	if len(clusters.Items) == 0 {
+		return
+	}
+	names := make([]string, 0, len(clusters.Items))
+	for _, item := range clusters.Items {
+		names = append(names, item.Name)
+	}
+	sort.Strings(names)
+	h.t.Fatalf("preflight: namespace %q contains existing KeyValCluster objects (%d): %s. Run `make e2e-clean`, pick a fresh E2E_NAMESPACE, or set E2E_ALLOW_DIRTY_NAMESPACE=1 to skip this check.", h.namespace, len(names), strings.Join(names, ", "))
+}
+
 func (h *Harness) cleanup() {
 	h.cancel()
 	if h.keepResources {
@@ -328,6 +352,22 @@ func keepResources() bool {
 		keep, err := parseBool(raw)
 		if err == nil {
 			return keep
+		}
+	}
+	return false
+}
+
+func allowDirtyNamespace() bool {
+	if raw := os.Getenv("E2E_ALLOW_DIRTY_NAMESPACE"); raw != "" {
+		allow, err := parseBool(raw)
+		if err == nil {
+			return allow
+		}
+	}
+	if raw := os.Getenv("TESTS_NEW_ALLOW_DIRTY_NAMESPACE"); raw != "" {
+		allow, err := parseBool(raw)
+		if err == nil {
+			return allow
 		}
 	}
 	return false
