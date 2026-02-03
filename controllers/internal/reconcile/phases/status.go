@@ -103,7 +103,7 @@ func Status(ctx context.Context, cr *keyvalv1alpha1.KeyValCluster, state *reconc
 	}
 
 	if err := opstatus.UpdateStatus(ctx, state.Dependencies.Client, cr, clusterState); err != nil {
-		return controllererrors.WrapTransient(fmt.Errorf("update status: %w", err))
+		return controllererrors.WrapTransient(controllererrors.WrapKubeAPI(fmt.Errorf("update status: %w", err)))
 	}
 
 	return nil

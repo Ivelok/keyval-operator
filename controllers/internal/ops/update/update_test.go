@@ -26,6 +26,55 @@ func (r *rejectingEvictor) Evict(context.Context, eviction.Request) error {
 	return eviction.ErrRejected
 }
 
+func TestIsConfigDriftReason(t *testing.T) {
+	t.Parallel()
+	cases := map[string]bool{
+		"config-hash":                   true,
+		"tls-hash":                      true,
+		"resources:redis":               true,
+		"resources:sentinel":            true,
+		"resources:metrics":             true,
+		"spec:node-selector":            true,
+		"metrics:missing":               true,
+		"metrics:present-when-disabled": true,
+		"image:redis":                   true,
+		"image:sentinel":                true,
+		"layout:sentinel-removed":       true,
+		"health:lagging":                false,
+		"health:desynced":               false,
+		"health:offline":                false,
+		"scale-down":                    false,
+		"":                              false,
+	}
+	for reason, expected := range cases {
+		if got := IsConfigDriftReason(reason); got != expected {
+			t.Fatalf("reason %q expected %v, got %v", reason, expected, got)
+		}
+	}
+}
+
+func TestPlanHasConfigDrift(t *testing.T) {
+	t.Parallel()
+	plan := Plan{
+		PodNames: []string{"demo-0"},
+		Reasons: map[string][]string{
+			"demo-0": {"health:lagging", "config-hash"},
+		},
+	}
+	if !PlanHasConfigDrift(plan) {
+		t.Fatalf("expected config drift in plan")
+	}
+	noDrift := Plan{
+		PodNames: []string{"demo-1"},
+		Reasons: map[string][]string{
+			"demo-1": {"health:offline", "scale-down"},
+		},
+	}
+	if PlanHasConfigDrift(noDrift) {
+		t.Fatalf("did not expect config drift in plan")
+	}
+}
+
 func TestExecuteSentinelFallbackDeletesUnreadyPod(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := clientgoscheme.AddToScheme(scheme); err != nil {

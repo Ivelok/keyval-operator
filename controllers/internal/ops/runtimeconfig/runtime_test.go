@@ -2,6 +2,7 @@ package runtimeconfig
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 
@@ -15,6 +16,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	keyvalv1alpha1 "github.com/ivelok/keyval-operator/api/v1alpha1"
+	controllererrors "github.com/ivelok/keyval-operator/controllers/errors"
 	clientspkg "github.com/ivelok/keyval-operator/controllers/internal/clients"
 	"github.com/ivelok/keyval-operator/controllers/internal/resources"
 	"github.com/ivelok/keyval-operator/controllers/internal/security"
@@ -93,6 +95,9 @@ func TestApplyRedisRuntime_NeedsRestartForDenylistedKeys(t *testing.T) {
 	res := ApplyRedisRuntime(context.Background(), fakeClient, factory, cr, []corev1.Pod{pod}, hash, testLogger(t), nil, sec)
 	if res.Mode != ModeNeedsRestart {
 		t.Fatalf("expected ModeNeedsRestart, got %v", res.Mode)
+	}
+	if res.Err == nil || !errors.Is(res.Err, controllererrors.ErrConfigDrift) {
+		t.Fatalf("expected ErrConfigDrift, got %v", res.Err)
 	}
 	if factory.clients["demo-0"].setCount != 0 {
 		t.Fatalf("config set should not run when restart required")

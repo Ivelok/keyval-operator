@@ -12,7 +12,7 @@
 - During startup `main.go` selects a reconcile profile (`small`/`medium`/`large`) based on the actual number of `KeyValCluster` objects and their replica counts. The profile configures `MaxConcurrentReconciles`, `client-go` QPS/Burst, and the TTL for the master address cache. Debug overrides are only allowed through `KEYVAL_OPERATOR_RECONCILE_PROFILE`; when the variable is set the operator logs a warning.
 - `KeyValClusterReconciler` keeps no global state; all dependencies are injected on creation, which simplifies testing.
 - Logging uses `log/slog` and integrates with controller-runtime’s `logr`. `logging.Initialize` executes lazily and is concurrency-safe.
-- Package `controllers/errors` exposes typed wrappers `WrapTransient/WrapFatal`. The reconcile result is recorded in the `keyval_reconcile_result_total` metric.
+- Package `controllers/errors` exposes typed wrappers `WrapTransient/WrapFatal`. The reconcile result is recorded in the `keyval_reconcile_result_total` metric. `ErrConfigDrift` marks drift detected by update planning, runtime config needing restart, and immutable Redis StatefulSet applies.
 
 ## 3. Internal Module Layout
 ```
@@ -74,6 +74,7 @@ controllers/internal/
 7. **Health gate** — compute status through `status.ComputeStatus`, update conditions `BootstrapInProgress`, `ReplicationHealthy`, `SentinelQuorum`, `FailoverInProgress`, `DisruptionsPaused`, `UpgradeInProgress`, and set `status.healthGate.allowDisruptions`.
 8. **Rolling updates** —
    - `PlanUpdates` detects drift in annotations/images/resources/health/scale-down.
+   - When an update execution fails and the plan indicates drift, the error is wrapped with `ErrConfigDrift` for classification and metrics.
    - `EvaluateGuards` blocks updates during bootstrap, failover, lack of healthy replicas, or when disruptions are disabled. It emits `RollingStepBlocked/Resumed` and increments `keyval_disruptions_blocked_total`.
    - Before deleting the master pod in Sentinel mode the controller invokes `ops/sentinel.TriggerFailover` (events `StartFailover`, `FailoverTriggered`, `FailoverCompleted`, `NewMaster`).
    - Evictions go through the wrapper; when `ErrRejected` happens the controller resets `keyval_operator_update_in_progress`, sets annotation `keyval.ivelok.io/update-blocked`, and waits for backoff.

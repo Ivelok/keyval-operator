@@ -32,7 +32,7 @@ func Config(ctx context.Context, state *reconcile.State) error {
 		return controllererrors.WrapTransient(fmt.Errorf("set owner on configmap: %w", err))
 	}
 	if err := state.Dependencies.Client.Patch(ctx, applyCfg, client.Apply, client.FieldOwner(core.FieldOwner)); err != nil {
-		return controllererrors.WrapTransient(fmt.Errorf("apply configmap: %w", err))
+		return controllererrors.WrapTransient(controllererrors.WrapKubeAPI(fmt.Errorf("apply configmap: %w", err)))
 	}
 
 	state.Config = reconcile.ConfigState{

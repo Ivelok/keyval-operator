@@ -61,9 +61,12 @@ Key values (see [`charts/keyval-operator/values.yaml`](charts/keyval-operator/va
 |-------|-------------|
 | `image.repository`, `image.tag` | Override controller container image. |
 | `manager.replicas` | Operator deployment replicas (default 1). |
+| `manager.resources` | Resource requests/limits for the controller manager. |
 | `manager.metricsService.create` | Expose metrics service. |
 | `examples.enabled` | Deploy sample `KeyValCluster` resources. |
 | `examples.clusters[].spec` | Declarative KeyValCluster spec supporting auth/tls/pdb thresholds. |
+
+Detailed Helm values and defaults are documented in `charts/keyval-operator/README.md`.
 
 CRDs are shipped in `charts/keyval-operator/crds/`. Helm installs them on first install, but does not
 upgrade CRDs on `helm upgrade`. When upgrading across a version that changes the CRD schema, apply the

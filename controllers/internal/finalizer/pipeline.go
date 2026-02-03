@@ -18,6 +18,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	keyvalv1alpha1 "github.com/ivelok/keyval-operator/api/v1alpha1"
+	controllererrors "github.com/ivelok/keyval-operator/controllers/errors"
 	"github.com/ivelok/keyval-operator/controllers/internal/clients"
 	"github.com/ivelok/keyval-operator/controllers/internal/core"
 	opobs "github.com/ivelok/keyval-operator/controllers/internal/ops/observability"
@@ -215,8 +216,9 @@ func alignReplication(ctx context.Context, state *State) {
 	selector := labels.SelectorFromSet(map[string]string{core.LabelAppKey: core.AppLabel(state.Cluster)})
 	var pods corev1.PodList
 	if err := deps.Client.List(ctx, &pods, &client.ListOptions{Namespace: state.Cluster.Namespace, LabelSelector: selector}); err != nil {
+		wrapped := controllererrors.WrapKubeAPI(fmt.Errorf("list pods: %w", err))
 		if !state.Logger.IsZero() {
-			state.Logger.V(1).Info("skip replication alignment", "reason", "list pods", "error", err)
+			state.Logger.V(1).Info("skip replication alignment", "reason", "list pods", "error", wrapped)
 		}
 		return
 	}
@@ -255,13 +257,13 @@ func unlockDisruptions(ctx context.Context, state *State) {
 	// Remove Redis PDB to allow StatefulSet to scale down fully.
 	redisPDB := resources.RedisPDB(cr, 0)
 	if err := deps.Client.Delete(ctx, &policyv1.PodDisruptionBudget{ObjectMeta: metav1.ObjectMeta{Name: redisPDB.Name, Namespace: redisPDB.Namespace}}); err != nil && !apierrors.IsNotFound(err) {
-		logger.Error(err, "failed to delete redis pdb during cleanup")
+		logger.Error(controllererrors.WrapKubeAPI(fmt.Errorf("delete redis pdb: %w", err)), "failed to delete redis pdb during cleanup")
 	}
 
 	if cr.Spec.Mode == keyvalv1alpha1.ModeSentinel {
 		sentinelPDB := resources.SentinelPDB(cr, 0)
 		if err := deps.Client.Delete(ctx, &policyv1.PodDisruptionBudget{ObjectMeta: metav1.ObjectMeta{Name: sentinelPDB.Name, Namespace: sentinelPDB.Namespace}}); err != nil && !apierrors.IsNotFound(err) {
-			logger.Error(err, "failed to delete sentinel pdb during cleanup")
+			logger.Error(controllererrors.WrapKubeAPI(fmt.Errorf("delete sentinel pdb: %w", err)), "failed to delete sentinel pdb during cleanup")
 		}
 	}
 }
@@ -285,7 +287,7 @@ func (s *State) ensureFinalizerStart(ctx context.Context) (time.Time, error) {
 	}
 	cr.Annotations[core.AnnotationFinalizerStarted] = started.Format(time.RFC3339Nano)
 	if err := s.Dependencies.Client.Patch(ctx, cr, client.MergeFrom(base)); err != nil {
-		return time.Time{}, err
+		return time.Time{}, controllererrors.WrapTransient(controllererrors.WrapKubeAPI(fmt.Errorf("patch finalizer start: %w", err)))
 	}
 	opobs.EventStorageCleanupStarted(s.Dependencies.Recorder, cr, "deletePVCs")
 	return started, nil
@@ -304,7 +306,9 @@ func (s *State) clearFinalizerStart(ctx context.Context) {
 	}
 	base := cr.DeepCopy()
 	delete(cr.Annotations, core.AnnotationFinalizerStarted)
-	_ = s.Dependencies.Client.Patch(ctx, cr, client.MergeFrom(base))
+	if err := s.Dependencies.Client.Patch(ctx, cr, client.MergeFrom(base)); err != nil && !s.Logger.IsZero() {
+		s.Logger.Error(controllererrors.WrapKubeAPI(fmt.Errorf("clear finalizer start: %w", err)), "failed to clear finalizer start")
+	}
 }
 
 func (s *State) setStorageCleanupCondition(ctx context.Context, status metav1.ConditionStatus, reason, message string) {
@@ -328,6 +332,7 @@ func (s *State) setStorageCleanupCondition(ctx context.Context, status metav1.Co
 		if apierrors.IsNotFound(err) || apierrors.IsConflict(err) {
 			return
 		}
+		err = controllererrors.WrapKubeAPI(fmt.Errorf("patch storage cleanup condition: %w", err))
 		if !s.Logger.IsZero() {
 			s.Logger.Error(err, "failed to patch storage cleanup condition", "reason", reason)
 		}
@@ -369,7 +374,7 @@ func drainStatefulSets(ctx context.Context, state *State) error {
 	selector := labels.SelectorFromSet(map[string]string{core.LabelClusterKey: cr.Name})
 	var stsList appsv1.StatefulSetList
 	if err := deps.Client.List(ctx, &stsList, &client.ListOptions{Namespace: cr.Namespace, LabelSelector: selector}); err != nil {
-		return err
+		return controllererrors.WrapTransient(controllererrors.WrapKubeAPI(fmt.Errorf("list statefulsets: %w", err)))
 	}
 	zero := int32(0)
 	for i := range stsList.Items {
@@ -383,7 +388,7 @@ func drainStatefulSets(ctx context.Context, state *State) error {
 			if apierrors.IsNotFound(err) {
 				continue
 			}
-			return err
+			return controllererrors.WrapTransient(controllererrors.WrapKubeAPI(fmt.Errorf("scale statefulset %s to zero: %w", sts.Name, err)))
 		}
 		if !state.Logger.IsZero() {
 			state.Logger.V(1).Info("scaled statefulset to zero for cleanup", "statefulset", sts.Name)
@@ -393,7 +398,7 @@ func drainStatefulSets(ctx context.Context, state *State) error {
 	return wait.PollUntilContextTimeout(ctx, time.Second, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
 		var pods corev1.PodList
 		if err := deps.Client.List(ctx, &pods, &client.ListOptions{Namespace: cr.Namespace, LabelSelector: selector}); err != nil {
-			return false, err
+			return false, controllererrors.WrapTransient(controllererrors.WrapKubeAPI(fmt.Errorf("list pods: %w", err)))
 		}
 		if len(pods.Items) == 0 {
 			return true, nil

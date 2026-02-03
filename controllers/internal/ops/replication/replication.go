@@ -264,10 +264,10 @@ func ensureWithMaster(ctx context.Context, cr *keyvalv1alpha1.KeyValCluster, pod
 	for _, p := range runtimepkg.SortedPodsByName(pods) {
 		c, err := cf.ForPod(ctx, p, clientOpts)
 		if err != nil {
-			return res, controllererrors.WrapTransient(fmt.Errorf("client for pod %s: %w", p.Name, err))
+			return res, controllererrors.WrapTransient(controllererrors.WrapExternalDependency(fmt.Errorf("client for pod %s: %w", p.Name, err)))
 		}
 		if err := maybeAuth(ctx, c, opts.username, opts.password); err != nil {
-			return res, controllererrors.WrapTransient(fmt.Errorf("auth pod %s: %w", p.Name, err))
+			return res, controllererrors.WrapTransient(controllererrors.WrapExternalDependency(fmt.Errorf("auth pod %s: %w", p.Name, err)))
 		}
 		if p.Name == masterName {
 			info, infoErr := c.ReplicationInfo(ctx)
@@ -281,7 +281,7 @@ func ensureWithMaster(ctx context.Context, cr *keyvalv1alpha1.KeyValCluster, pod
 					return c.NoOne(opCtx)
 				})
 				if promoteErr != nil {
-					return res, controllererrors.WrapTransient(fmt.Errorf("promote master %s: %w", p.Name, promoteErr))
+					return res, controllererrors.WrapTransient(controllererrors.WrapExternalDependency(fmt.Errorf("promote master %s: %w", p.Name, promoteErr)))
 				}
 				res.Changed = true
 				res.Drift = append(res.Drift, p.Name)
@@ -321,7 +321,7 @@ func ensureWithMaster(ctx context.Context, cr *keyvalv1alpha1.KeyValCluster, pod
 				return c.ReplicaOf(opCtx, masterHost, masterPort)
 			})
 			if replicaErr != nil {
-				return res, controllererrors.WrapTransient(fmt.Errorf("replica %s replicaof %s:%d: %w", p.Name, masterHost, masterPort, replicaErr))
+				return res, controllererrors.WrapTransient(controllererrors.WrapExternalDependency(fmt.Errorf("replica %s replicaof %s:%d: %w", p.Name, masterHost, masterPort, replicaErr)))
 			}
 			res.Changed = true
 			res.Drift = append(res.Drift, p.Name)
@@ -352,12 +352,12 @@ func resolveMasterViaSentinel(ctx context.Context, cr *keyvalv1alpha1.KeyValClus
 	for _, sp := range runtimepkg.SortedPodsByName(sentinelPods) {
 		cli, err := sf.ForPod(ctx, sp, SentinelOptions{Username: opts.username, Password: opts.password, TLSConfig: opts.tlsConfig})
 		if err != nil {
-			errs = append(errs, controllererrors.WrapTransient(fmt.Errorf("sentinel client %s: %w", sp.Name, err)))
+			errs = append(errs, controllererrors.WrapTransient(controllererrors.WrapExternalDependency(fmt.Errorf("sentinel client %s: %w", sp.Name, err))))
 			continue
 		}
 		host, port, err := cli.GetMasterAddrByName(ctx, cr.Name)
 		if err != nil {
-			errs = append(errs, controllererrors.WrapTransient(fmt.Errorf("sentinel %s get-master: %w", sp.Name, err)))
+			errs = append(errs, controllererrors.WrapTransient(controllererrors.WrapExternalDependency(fmt.Errorf("sentinel %s get-master: %w", sp.Name, err))))
 			continue
 		}
 		if host == "" {
@@ -505,10 +505,10 @@ func DetectRoles(ctx context.Context, cr *keyvalv1alpha1.KeyValCluster, pods []c
 	for _, p := range runtimepkg.SortedPodsByName(pods) {
 		c, err := cf.ForPod(ctx, p, ClientOptions{Username: opts.username, Password: opts.password, TLSConfig: opts.tlsConfig})
 		if err != nil {
-			return "", nil, controllererrors.WrapTransient(fmt.Errorf("client for pod %s: %w", p.Name, err))
+			return "", nil, controllererrors.WrapTransient(controllererrors.WrapExternalDependency(fmt.Errorf("client for pod %s: %w", p.Name, err)))
 		}
 		if err := maybeAuth(ctx, c, opts.username, opts.password); err != nil {
-			return "", nil, controllererrors.WrapTransient(fmt.Errorf("auth pod %s: %w", p.Name, err))
+			return "", nil, controllererrors.WrapTransient(controllererrors.WrapExternalDependency(fmt.Errorf("auth pod %s: %w", p.Name, err)))
 		}
 		var r string
 		err = runtimepkg.Retry(ctx, 3, runtimepkg.Backoff{Initial: 200 * time.Millisecond, Factor: 2, Max: 2 * time.Second}, func(int) error {
@@ -519,7 +519,7 @@ func DetectRoles(ctx context.Context, cr *keyvalv1alpha1.KeyValCluster, pods []c
 			return e
 		})
 		if err != nil {
-			return "", nil, controllererrors.WrapTransient(fmt.Errorf("role for pod %s: %w", p.Name, err))
+			return "", nil, controllererrors.WrapTransient(controllererrors.WrapExternalDependency(fmt.Errorf("role for pod %s: %w", p.Name, err)))
 		}
 		switch r {
 		case "master":

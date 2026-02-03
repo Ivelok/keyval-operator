@@ -2,6 +2,7 @@ package phases
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -13,6 +14,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -378,6 +380,53 @@ func TestWorkloadsRedisApplyErrorEmitsMetrics(t *testing.T) {
 	}
 	if got := testutil.ToFloat64(counter); got < 1.0 {
 		t.Fatalf("expected redis error metric >=1, got %f", got)
+	}
+}
+
+func TestWorkloadsRedisApplyImmutableMarksConfigDrift(t *testing.T) {
+	scheme := newScheme(t)
+	cluster := &keyvalv1alpha1.KeyValCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: "default"},
+		Spec: keyvalv1alpha1.KeyValClusterSpec{
+			Mode:          keyvalv1alpha1.ModeStandalone,
+			Engine:        keyvalv1alpha1.EngineRedis,
+			Image:         "redis:7.2",
+			RedisReplicas: 1,
+		},
+	}
+	baseClient := fake.NewClientBuilder().WithScheme(scheme).WithRuntimeObjects(cluster.DeepCopy()).Build()
+	invalidErr := apierrors.NewInvalid(
+		schema.GroupKind{Group: appsv1.GroupName, Kind: "StatefulSet"},
+		cluster.Name,
+		field.ErrorList{field.Invalid(field.NewPath("spec").Child("serviceName"), "", "field is immutable")},
+	)
+	c := &applyErrorClient{
+		Client: baseClient,
+		target: cluster.Name,
+		err:    invalidErr,
+	}
+	state := &reconcile.State{
+		Cluster: cluster.DeepCopy(),
+		Logger:  newLogger(),
+		Dependencies: reconcile.Dependencies{
+			Client:   c,
+			Recorder: record.NewFakeRecorder(10),
+			Scheme:   scheme,
+		},
+		Accumulator: &reconcile.RequeueAccumulator{},
+		Security:    reconcile.SecurityState{Settings: security.Settings{}},
+		Config:      reconcile.ConfigState{ConfigHash: "cfg"},
+	}
+
+	err := Workloads(context.Background(), state)
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+	if !controllererrors.IsTransient(err) {
+		t.Fatalf("expected transient error, got %v", err)
+	}
+	if !errors.Is(err, controllererrors.ErrConfigDrift) {
+		t.Fatalf("expected ErrConfigDrift, got %v", err)
 	}
 }
 

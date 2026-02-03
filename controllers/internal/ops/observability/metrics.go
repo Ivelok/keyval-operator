@@ -9,6 +9,7 @@ import (
 	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 
 	keyvalv1alpha1 "github.com/ivelok/keyval-operator/api/v1alpha1"
+	controllererrors "github.com/ivelok/keyval-operator/controllers/errors"
 )
 
 const (
@@ -273,6 +274,13 @@ var (
 		},
 		[]string{"namespace", "cluster", "result"},
 	)
+	reconcileErrorClasses = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "keyval_reconcile_error_class_total",
+			Help: "Number of reconcile errors by error class",
+		},
+		[]string{"namespace", "cluster", "class"},
+	)
 	disruptionsBlocked = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "keyval_disruptions_blocked_total",
@@ -413,6 +421,7 @@ func init() {
 		disruptionsBlocked,
 		updateInProgress,
 		reconcileResults,
+		reconcileErrorClasses,
 		finalizerDuration,
 		storageCleanupFailures,
 		sentinelResetsTotal,
@@ -1085,6 +1094,20 @@ func IncReconcileResult(cr *keyvalv1alpha1.KeyValCluster, result ReconcileResult
 		result = ReconcileResultSuccess
 	}
 	reconcileResults.With(prometheus.Labels{"namespace": cr.Namespace, "cluster": cr.Name, "result": string(result)}).Inc()
+}
+
+func IncReconcileErrorClass(cr *keyvalv1alpha1.KeyValCluster, class controllererrors.Class) {
+	if cr == nil {
+		return
+	}
+	if class == "" {
+		class = controllererrors.ClassUnknown
+	}
+	reconcileErrorClasses.With(prometheus.Labels{
+		"namespace": cr.Namespace,
+		"cluster":   cr.Name,
+		"class":     string(class),
+	}).Inc()
 }
 
 func IncStatusUpdate(cr *keyvalv1alpha1.KeyValCluster, mutated bool) {

@@ -47,6 +47,12 @@ const (
 	scaleDirectionDown = "down"
 )
 
+type statusSummary struct {
+	wantStatus       keyvalv1alpha1.KeyValClusterStatus
+	allowDisruptions bool
+	allowSentinel    bool
+}
+
 func (r *KeyValClusterReconciler) applyBackoffDelay(cr *keyvalv1alpha1.KeyValCluster, key string, base time.Duration) time.Duration {
 	delay := base
 	if delay < 0 {
@@ -122,10 +128,7 @@ func (r *KeyValClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 }
 
 func (r *KeyValClusterReconciler) reconcileClusterImpl(ctx context.Context, state *reconcilepkg.State) (res ctrl.Result, err error) {
-	logger := state.Logger
-	if logger.IsZero() {
-		logger = r.baseLogger
-	}
+	logger := r.ensureLogger(state)
 	ctx = logging.IntoContext(ctx, logger)
 	resourceKey := state.ResourceKey
 
@@ -134,46 +137,12 @@ func (r *KeyValClusterReconciler) reconcileClusterImpl(ctx context.Context, stat
 		*state.Cluster = cr
 	}()
 
-	// Handle deletion via finalizer
-	if !cr.ObjectMeta.DeletionTimestamp.IsZero() {
-		if controllerutil.ContainsFinalizer(&cr, core.FinalizerName) {
-			if err := r.finalizeCluster(ctx, &cr); err != nil {
-				return ctrl.Result{}, controllererrors.WrapTransient(fmt.Errorf("finalize: %w", err))
-			}
-			base := cr.DeepCopy()
-			controllerutil.RemoveFinalizer(&cr, core.FinalizerName)
-			if err := r.Patch(ctx, &cr, client.MergeFrom(base)); err != nil {
-				return ctrl.Result{}, controllererrors.WrapTransient(fmt.Errorf("remove finalizer: %w", err))
-			}
-		}
-		return ctrl.Result{}, nil
+	if res, done, err := r.reconcileFinalizers(ctx, &cr, resourceKey); done || err != nil {
+		return res, err
 	}
 
-	// Ensure finalizer present
-	if !controllerutil.ContainsFinalizer(&cr, core.FinalizerName) {
-		base := cr.DeepCopy()
-		controllerutil.AddFinalizer(&cr, core.FinalizerName)
-		if err := r.Patch(ctx, &cr, client.MergeFrom(base)); err != nil {
-			return ctrl.Result{}, controllererrors.WrapTransient(fmt.Errorf("add finalizer: %w", err))
-		}
-	}
-
-	if err := phases.Security(ctx, state); err != nil {
-		return ctrl.Result{}, err
-	}
-	secSettings := state.Security.Settings
-	clientOpts := state.Security.RedisClientOptions
-	tlsHash := state.Security.TLSHash
-
-	if err := phases.Config(ctx, state); err != nil {
-		return ctrl.Result{}, err
-	}
-	hash := state.Config.ConfigHash
-	if hash == "" {
-		hash = resources.ConfigHash(&cr, &secSettings)
-	}
-
-	if err := phases.Services(ctx, state); err != nil {
+	hash, err := r.reconcileSecurityConfig(ctx, state, &cr)
+	if err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -181,76 +150,166 @@ func (r *KeyValClusterReconciler) reconcileClusterImpl(ctx context.Context, stat
 		return r.applyBackoffDelay(&cr, resourceKey, base)
 	}
 
-	if err := phases.Workloads(ctx, state); err != nil {
+	if err := r.reconcileWorkloads(ctx, state); err != nil {
 		return ctrl.Result{}, err
-	}
-	if err := phases.PodMetadata(ctx, state); err != nil {
-		return ctrl.Result{}, err
-	}
-	if err := phases.ExternalImport(ctx, state); err != nil {
-		if statusErr := phases.Status(ctx, &cr, state); statusErr != nil {
-			return ctrl.Result{}, statusErr
-		}
-		result := ctrl.Result{}
-		if delay := state.NextRequeue(); delay > 0 {
-			result.RequeueAfter = delay
-		}
-		return result, err
-	}
-	if state.AbortDirective != nil {
-		if err := phases.Status(ctx, &cr, state); err != nil {
-			return ctrl.Result{}, err
-		}
-		result := ctrl.Result{}
-		if delay := state.NextRequeue(); delay > 0 {
-			result.RequeueAfter = delay
-		}
-		return result, state.AbortDirective.Err
 	}
 
+	if res, done, err := r.reconcileExternalImportAndAbort(ctx, state, &cr); done || err != nil {
+		return res, err
+	}
+
+	res, done, err := r.reconcileRuntimeAndLabels(ctx, state, &cr, logger, resourceKey, hash)
+	if done || err != nil {
+		return res, err
+	}
+
+	statusSummary, err := r.reconcileStatusAndPDB(ctx, state, &cr)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if res, done, err := r.reconcileUpdatesAndRequeue(ctx, state, &cr, logger, resourceKey, hash, statusSummary); done || err != nil {
+		return res, err
+	}
+
+	return ctrl.Result{}, nil
+}
+
+func (r *KeyValClusterReconciler) ensureLogger(state *reconcilepkg.State) logging.Logger {
+	logger := state.Logger
+	if logger.IsZero() {
+		logger = r.baseLogger
+	}
+	return logger
+}
+
+func (r *KeyValClusterReconciler) reconcileFinalizers(ctx context.Context, cr *keyvalv1alpha1.KeyValCluster, resourceKey string) (ctrl.Result, bool, error) {
+	// Handle deletion via finalizer
+	if !cr.ObjectMeta.DeletionTimestamp.IsZero() {
+		if controllerutil.ContainsFinalizer(cr, core.FinalizerName) {
+			if err := r.finalizeCluster(ctx, cr); err != nil {
+				delay := r.applyBackoffDelay(cr, resourceKey, 5*time.Second)
+				return ctrl.Result{RequeueAfter: delay}, true, controllererrors.WrapTransient(fmt.Errorf("finalize: %w", err))
+			}
+			base := cr.DeepCopy()
+			controllerutil.RemoveFinalizer(cr, core.FinalizerName)
+			if err := r.Patch(ctx, cr, client.MergeFrom(base)); err != nil {
+				delay := r.applyBackoffDelay(cr, resourceKey, 5*time.Second)
+				return ctrl.Result{RequeueAfter: delay}, true, controllererrors.WrapTransient(fmt.Errorf("remove finalizer: %w", err))
+			}
+		}
+		return ctrl.Result{}, true, nil
+	}
+
+	// Ensure finalizer present
+	if !controllerutil.ContainsFinalizer(cr, core.FinalizerName) {
+		base := cr.DeepCopy()
+		controllerutil.AddFinalizer(cr, core.FinalizerName)
+		if err := r.Patch(ctx, cr, client.MergeFrom(base)); err != nil {
+			delay := r.applyBackoffDelay(cr, resourceKey, 5*time.Second)
+			return ctrl.Result{RequeueAfter: delay}, true, controllererrors.WrapTransient(fmt.Errorf("add finalizer: %w", err))
+		}
+	}
+
+	return ctrl.Result{}, false, nil
+}
+
+func (r *KeyValClusterReconciler) reconcileSecurityConfig(ctx context.Context, state *reconcilepkg.State, cr *keyvalv1alpha1.KeyValCluster) (string, error) {
+	if err := phases.Security(ctx, state); err != nil {
+		return "", err
+	}
+
+	if err := phases.Config(ctx, state); err != nil {
+		return "", err
+	}
+	hash := state.Config.ConfigHash
+	if hash == "" {
+		hash = resources.ConfigHash(cr, &state.Security.Settings)
+	}
+
+	if err := phases.Services(ctx, state); err != nil {
+		return "", err
+	}
+
+	return hash, nil
+}
+
+func (r *KeyValClusterReconciler) reconcileWorkloads(ctx context.Context, state *reconcilepkg.State) error {
+	if err := phases.Workloads(ctx, state); err != nil {
+		return err
+	}
+	if err := phases.PodMetadata(ctx, state); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (r *KeyValClusterReconciler) reconcileExternalImportAndAbort(ctx context.Context, state *reconcilepkg.State, cr *keyvalv1alpha1.KeyValCluster) (ctrl.Result, bool, error) {
+	if err := phases.ExternalImport(ctx, state); err != nil {
+		if statusErr := phases.Status(ctx, cr, state); statusErr != nil {
+			return ctrl.Result{}, true, statusErr
+		}
+		result := ctrl.Result{}
+		if delay := state.NextRequeue(); delay > 0 {
+			result.RequeueAfter = delay
+		}
+		return result, true, err
+	}
+	if state.AbortDirective != nil {
+		if err := phases.Status(ctx, cr, state); err != nil {
+			return ctrl.Result{}, true, err
+		}
+		result := ctrl.Result{}
+		if delay := state.NextRequeue(); delay > 0 {
+			result.RequeueAfter = delay
+		}
+		return result, true, state.AbortDirective.Err
+	}
+	return ctrl.Result{}, false, nil
+}
+
+func (r *KeyValClusterReconciler) reconcileRuntimeAndLabels(ctx context.Context, state *reconcilepkg.State, cr *keyvalv1alpha1.KeyValCluster, logger logging.Logger, resourceKey, hash string) (ctrl.Result, bool, error) {
+	secSettings := state.Security.Settings
+	tlsHash := state.Security.TLSHash
 	pods := state.RedisPods
 	if len(pods) == 0 && cr.Spec.RedisReplicas > 0 {
 		delay := state.NextRequeue()
 		if delay <= 0 {
-			delay = r.applyBackoffDelay(&cr, resourceKey, 2*time.Second)
+			delay = r.applyBackoffDelay(cr, resourceKey, 2*time.Second)
 			state.RequeueAfter(delay)
 		}
 		ssName := ""
 		if state.RedisStatefulSet != nil {
 			ssName = state.RedisStatefulSet.Name
 		} else {
-			ssName = resources.StatefulSet(&cr, hash, tlsHash, &secSettings).Name
+			ssName = resources.StatefulSet(cr, hash, tlsHash, &secSettings).Name
 		}
 		logger.Info("No pods created yet, requeueing", "statefulset", ssName, "expectedReplicas", cr.Spec.RedisReplicas, "after", delay)
-		return ctrl.Result{RequeueAfter: delay}, nil
+		return ctrl.Result{RequeueAfter: delay}, true, nil
 	}
 
-	sentinelPods := state.SentinelPods
-	storagePlan := opstorage.ResizeResult{}
-
-	if plan, err := opstorage.EnsureResize(ctx, r.Client, &cr, pods, r.Recorder, logger); err != nil {
-		return ctrl.Result{}, controllererrors.WrapTransient(fmt.Errorf("ensure storage resize: %w", err))
+	if plan, err := opstorage.EnsureResize(ctx, r.Client, cr, pods, r.Recorder, logger); err != nil {
+		return ctrl.Result{}, true, controllererrors.WrapTransient(fmt.Errorf("ensure storage resize: %w", err))
 	} else {
-		storagePlan = plan
-		state.StoragePlan = storagePlan
-		if storagePlan.MinRequeueAfter > 0 {
-			state.RequeueMin(storagePlan.MinRequeueAfter)
+		state.StoragePlan = plan
+		if plan.MinRequeueAfter > 0 {
+			state.RequeueMin(plan.MinRequeueAfter)
 		}
-		if storagePlan.Waiting {
-			if storagePlan.RequeueAfter > 0 {
-				state.RequeueAfter(storagePlan.RequeueAfter)
+		if plan.Waiting {
+			if plan.RequeueAfter > 0 {
+				state.RequeueAfter(plan.RequeueAfter)
 			} else {
 				state.RequeueAfter(5 * time.Second)
 			}
-			if len(storagePlan.PendingPVCs) > 0 {
-				logger.V(1).Info("waiting for pvc resize", "pendingPVCs", storagePlan.PendingPVCs)
+			if len(plan.PendingPVCs) > 0 {
+				logger.V(1).Info("waiting for pvc resize", "pendingPVCs", plan.PendingPVCs)
 			}
 		}
 	}
 
 	// Detect roles and ensure replication via runtime phase
 	if err := phases.Runtime(ctx, state); err != nil {
-		return ctrl.Result{}, err
+		return ctrl.Result{}, true, err
 	}
 
 	runtimeState := state.Runtime
@@ -258,22 +317,16 @@ func (r *KeyValClusterReconciler) reconcileClusterImpl(ctx context.Context, stat
 	if infoMap == nil {
 		infoMap = map[string]ReplicationInfo{}
 	}
-	master := runtimeState.Master
 	topology := runtimeState.Topology
 	readyCount := runtimeState.ReadyCount
-	activePods := runtimeState.ActivePods
-	healthStates := runtimeState.Health
-	if healthStates == nil {
-		healthStates = map[string]keyvalv1alpha1.PodHealth{}
-	}
 	runtimeResults := runtimeState.RuntimeResults
 	prevRolesSource := keyvalv1alpha1.RolesSource(cr.Status.RolesSource)
 	newRolesSource := reconcilepkg.EnsureSourceToRolesSource(topology.Source)
 	if newRolesSource != "" {
 		if topology.Changed {
-			opobs.IncFailoverDecision(&cr, newRolesSource)
+			opobs.IncFailoverDecision(cr, newRolesSource)
 		} else if prevRolesSource != newRolesSource {
-			opobs.IncFailoverDecision(&cr, newRolesSource)
+			opobs.IncFailoverDecision(cr, newRolesSource)
 		}
 	}
 	if prevRolesSource != newRolesSource && newRolesSource == keyvalv1alpha1.RolesSourceProbe && cr.Spec.Mode == keyvalv1alpha1.ModeSentinel {
@@ -281,7 +334,7 @@ func (r *KeyValClusterReconciler) reconcileClusterImpl(ctx context.Context, stat
 		if detail == "" {
 			detail = "sentinel metadata unavailable; using direct pod probes"
 		}
-		opobs.EventReplicationHeuristicFallback(r.Recorder, &cr, detail)
+		opobs.EventReplicationHeuristicFallback(r.Recorder, cr, detail)
 	}
 	if runtimeState.ReplicationError != nil {
 		state.RequeueAfter(3 * time.Second)
@@ -298,39 +351,64 @@ func (r *KeyValClusterReconciler) reconcileClusterImpl(ctx context.Context, stat
 		}
 	}
 	if err := phases.Sentinel(ctx, state); err != nil {
-		return ctrl.Result{}, err
+		return ctrl.Result{}, true, err
 	}
 	runtimeState = state.Runtime
-	sentinelState := state.Sentinel
-	sentinelQuorumOK := sentinelState.QuorumOK
-	sentinelQuorumDetail := sentinelState.Detail
 
-	opbootstrap.UpdatePVCFreshness(ctx, r.Client, &cr, pods, infoMap)
+	opbootstrap.UpdatePVCFreshness(ctx, r.Client, cr, pods, infoMap)
 
 	runtimeCond := buildRuntimeCondition(runtimeResults)
 	state.Runtime.RuntimeCondition = runtimeCond
 
 	if err := phases.Labels(ctx, state); err != nil {
-		return ctrl.Result{}, err
+		return ctrl.Result{}, true, err
 	}
-	pods = state.RedisPods
+	return ctrl.Result{}, false, nil
+}
 
-	if err := phases.Status(ctx, &cr, state); err != nil {
-		return ctrl.Result{}, err
+func (r *KeyValClusterReconciler) reconcileStatusAndPDB(ctx context.Context, state *reconcilepkg.State, cr *keyvalv1alpha1.KeyValCluster) (statusSummary, error) {
+	if err := phases.Status(ctx, cr, state); err != nil {
+		return statusSummary{}, err
 	}
 	wantStatus := state.Status.Computed
 	allowDisruptions := state.Disruption.AllowDisruptions
 	allowSentinel := state.Disruption.AllowSentinel
 	if err := phases.PDB(ctx, state); err != nil {
-		return ctrl.Result{}, err
+		return statusSummary{}, err
 	}
+	return statusSummary{
+		wantStatus:       wantStatus,
+		allowDisruptions: allowDisruptions,
+		allowSentinel:    allowSentinel,
+	}, nil
+}
+
+func (r *KeyValClusterReconciler) reconcileUpdatesAndRequeue(ctx context.Context, state *reconcilepkg.State, cr *keyvalv1alpha1.KeyValCluster, logger logging.Logger, resourceKey, hash string, statusSummary statusSummary) (ctrl.Result, bool, error) {
+	secSettings := state.Security.Settings
+	clientOpts := state.Security.RedisClientOptions
+	tlsHash := state.Security.TLSHash
+	pods := state.RedisPods
+	sentinelPods := state.SentinelPods
+	storagePlan := state.StoragePlan
+	master := state.Runtime.Master
+	readyCount := state.Runtime.ReadyCount
+	activePods := state.Runtime.ActivePods
+	healthStates := state.Runtime.Health
+	if healthStates == nil {
+		healthStates = map[string]keyvalv1alpha1.PodHealth{}
+	}
+	sentinelQuorumOK := state.Sentinel.QuorumOK
+	sentinelQuorumDetail := state.Sentinel.Detail
+	wantStatus := statusSummary.wantStatus
+	allowDisruptions := statusSummary.allowDisruptions
+	allowSentinel := statusSummary.allowSentinel
 
 	// Rolling restart orchestrator (delete at most one pod if drift)
 	ssDesired := state.RedisStatefulSet
 	if ssDesired == nil {
-		ssDesired = ssa.StatefulSet(resources.StatefulSet(&cr, hash, tlsHash, &secSettings))
+		ssDesired = ssa.StatefulSet(resources.StatefulSet(cr, hash, tlsHash, &secSettings))
 	}
-	plan := opupdate.PlanUpdates(ctx, &cr, ssDesired, pods, healthStates, storagePlan.PodReasons)
+	plan := opupdate.PlanUpdates(ctx, cr, ssDesired, pods, healthStates, storagePlan.PodReasons)
 	scalePhase := ""
 	if cr.Annotations != nil {
 		scalePhase = cr.Annotations[core.AnnotationScalePhase]
@@ -347,26 +425,26 @@ func (r *KeyValClusterReconciler) reconcileClusterImpl(ctx context.Context, stat
 		detectedDirection = scaleDirectionDown
 	}
 	if scalePhase == "" && detectedDirection != "" {
-		if changed, err := setScalePhaseAnnotation(ctx, r.Client, &cr, detectedDirection); err != nil {
-			return ctrl.Result{}, controllererrors.WrapTransient(fmt.Errorf("set scale annotation: %w", err))
+		if changed, err := setScalePhaseAnnotation(ctx, r.Client, cr, detectedDirection); err != nil {
+			return ctrl.Result{}, true, controllererrors.WrapTransient(fmt.Errorf("set scale annotation: %w", err))
 		} else if changed {
 			logger.Info("scale operation started", "direction", detectedDirection, "current", activePods, "target", desiredReplicas)
-			opobs.EventScaleStarted(r.Recorder, &cr, detectedDirection, int32(activePods), cr.Spec.RedisReplicas)
-			opobs.SetScaleInProgress(&cr, true)
+			opobs.EventScaleStarted(r.Recorder, cr, detectedDirection, int32(activePods), cr.Spec.RedisReplicas)
+			opobs.SetScaleInProgress(cr, true)
 		}
 		scalePhase = detectedDirection
 	} else if scalePhase != "" && detectedDirection != "" && detectedDirection != scalePhase {
-		if changed, err := setScalePhaseAnnotation(ctx, r.Client, &cr, detectedDirection); err != nil {
-			return ctrl.Result{}, controllererrors.WrapTransient(fmt.Errorf("update scale annotation: %w", err))
+		if changed, err := setScalePhaseAnnotation(ctx, r.Client, cr, detectedDirection); err != nil {
+			return ctrl.Result{}, true, controllererrors.WrapTransient(fmt.Errorf("update scale annotation: %w", err))
 		} else if changed {
 			logger.Info("scale direction changed", "direction", detectedDirection, "current", activePods, "target", desiredReplicas)
-			opobs.EventScaleStarted(r.Recorder, &cr, detectedDirection, int32(activePods), cr.Spec.RedisReplicas)
-			opobs.SetScaleInProgress(&cr, true)
+			opobs.EventScaleStarted(r.Recorder, cr, detectedDirection, int32(activePods), cr.Spec.RedisReplicas)
+			opobs.SetScaleInProgress(cr, true)
 		}
 		scalePhase = detectedDirection
 	}
 	if scalePhase != "" {
-		opobs.SetScaleInProgress(&cr, true)
+		opobs.SetScaleInProgress(cr, true)
 	}
 	if scalePhase != "" {
 		completed := false
@@ -381,17 +459,17 @@ func (r *KeyValClusterReconciler) reconcileClusterImpl(ctx context.Context, stat
 			}
 		}
 		if completed {
-			if _, prev, err := clearScalePhaseAnnotation(ctx, r.Client, &cr); err != nil {
-				return ctrl.Result{}, controllererrors.WrapTransient(fmt.Errorf("clear scale annotation: %w", err))
+			if _, prev, err := clearScalePhaseAnnotation(ctx, r.Client, cr); err != nil {
+				return ctrl.Result{}, true, controllererrors.WrapTransient(fmt.Errorf("clear scale annotation: %w", err))
 			} else {
 				direction := scalePhase
 				if prev != "" {
 					direction = prev
 				}
 				logger.Info("scale operation completed", "direction", direction, "ready", readyCount, "target", desiredReplicas)
-				opobs.EventScaleCompleted(r.Recorder, &cr, direction, cr.Spec.RedisReplicas, int32(readyCount))
-				opobs.IncScaleOperation(&cr, direction)
-				opobs.SetScaleInProgress(&cr, false)
+				opobs.EventScaleCompleted(r.Recorder, cr, direction, cr.Spec.RedisReplicas, int32(readyCount))
+				opobs.IncScaleOperation(cr, direction)
+				opobs.SetScaleInProgress(cr, false)
 				scalePhase = ""
 			}
 		}
@@ -408,143 +486,150 @@ func (r *KeyValClusterReconciler) reconcileClusterImpl(ctx context.Context, stat
 	})
 	if len(plan.PodNames) > 0 {
 		if guard.Blocked {
-			opobs.SetUpdateInProgress(&cr, false)
-			if changed, err := setUpdateBlockedAnnotation(ctx, r.Client, &cr, guard.Reason); err != nil {
-				return ctrl.Result{}, controllererrors.WrapTransient(fmt.Errorf("set update-blocked annotation: %w", err))
+			opobs.SetUpdateInProgress(cr, false)
+			if changed, err := setUpdateBlockedAnnotation(ctx, r.Client, cr, guard.Reason); err != nil {
+				return ctrl.Result{}, true, controllererrors.WrapTransient(fmt.Errorf("set update-blocked annotation: %w", err))
 			} else if changed {
-				opobs.IncDisruptionsBlocked(&cr, guard.Reason)
-				opobs.EventRollingStepBlocked(r.Recorder, &cr, guard.Reason, guard.Detail)
+				opobs.IncDisruptionsBlocked(cr, guard.Reason)
+				opobs.EventRollingStepBlocked(r.Recorder, cr, guard.Reason, guard.Detail)
 				if planIncludesScaleDown {
-					opobs.EventScaleBlocked(r.Recorder, &cr, scaleDirectionDown, guard.Reason, guard.Detail)
+					opobs.EventScaleBlocked(r.Recorder, cr, scaleDirectionDown, guard.Reason, guard.Detail)
 				}
 			}
-			delay := r.applyBackoffDelay(&cr, resourceKey, guard.RequeueAfter)
-			res = ctrl.Result{RequeueAfter: delay}
-			return res, nil
+			delay := r.applyBackoffDelay(cr, resourceKey, guard.RequeueAfter)
+			res := ctrl.Result{RequeueAfter: delay}
+			return res, true, nil
 		}
-		if cleared, prevReason, err := clearUpdateBlockedAnnotation(ctx, r.Client, &cr); err != nil {
-			return ctrl.Result{}, controllererrors.WrapTransient(fmt.Errorf("clear update-blocked annotation: %w", err))
+		if cleared, prevReason, err := clearUpdateBlockedAnnotation(ctx, r.Client, cr); err != nil {
+			return ctrl.Result{}, true, controllererrors.WrapTransient(fmt.Errorf("clear update-blocked annotation: %w", err))
 		} else if cleared {
-			opobs.EventRollingStepResumed(r.Recorder, &cr, prevReason)
+			opobs.EventRollingStepResumed(r.Recorder, cr, prevReason)
 		}
-		opobs.SetUpdateInProgress(&cr, true)
+		opobs.SetUpdateInProgress(cr, true)
 		// If only the master remains to update and we're in Sentinel mode, perform a controlled failover first
 		onlyMasterPending := false
 		if master != "" && len(plan.PodNames) == 1 && plan.PodNames[0] == master {
 			onlyMasterPending = true
 		}
 		if onlyMasterPending && cr.Spec.Mode == keyvalv1alpha1.ModeSentinel && r.ClientFactory != nil && r.SentinelFactory != nil {
+			sentinelQuorumKey := resourceKey + ":sentinel-quorum"
+			sentinelReplicationKey := resourceKey + ":sentinel-replication"
+			sentinelGoodSlaveKey := resourceKey + ":sentinel-good-slave"
 			if !reconcilepkg.ConditionTrue(&wantStatus, keyvalv1alpha1.ConditionSentinelQuorum) {
-				delay := r.applyBackoffDelay(&cr, resourceKey, 5*time.Second)
+				delay := r.applyBackoffDelay(cr, sentinelQuorumKey, 5*time.Second)
 				logger.Info("waiting for sentinel quorum before controlled failover", "cluster", cr.Name, "after", delay)
-				res = ctrl.Result{RequeueAfter: delay}
-				return res, nil
+				res := ctrl.Result{RequeueAfter: delay}
+				return res, true, nil
 			}
 			if !reconcilepkg.ConditionTrue(&wantStatus, keyvalv1alpha1.ConditionReplicationHealthy) {
-				delay := r.applyBackoffDelay(&cr, resourceKey, 5*time.Second)
+				delay := r.applyBackoffDelay(cr, sentinelReplicationKey, 5*time.Second)
 				logger.Info("waiting for replication health before controlled failover", "cluster", cr.Name, "after", delay)
-				res = ctrl.Result{RequeueAfter: delay}
-				return res, nil
+				res := ctrl.Result{RequeueAfter: delay}
+				return res, true, nil
 			}
 			// Gate: ensure there is at least one "good slave" with master_link_status=up and attached to current master
-			if has, detail := hasGoodSlave(ctx, &cr, pods, master, r.ClientFactory, clientOpts); has {
+			if has, detail := hasGoodSlave(ctx, cr, pods, master, r.ClientFactory, clientOpts); has {
 				if !sentinelQuorumOK {
-					delay := r.applyBackoffDelay(&cr, resourceKey, 5*time.Second)
+					delay := r.applyBackoffDelay(cr, sentinelQuorumKey, 5*time.Second)
 					logger.Info("sentinel quorum not ready for failover", "cluster", cr.Name, "detail", sentinelQuorumDetail, "after", delay)
-					res = ctrl.Result{RequeueAfter: delay}
-					return res, nil
+					res := ctrl.Result{RequeueAfter: delay}
+					return res, true, nil
 				}
 				former := master
-				opobs.EventStartFailover(r.Recorder, &cr, opobs.FailoverTypeAutomatic, fmt.Sprintf("master=%s", master))
-				opobs.EventFailoverTriggered(r.Recorder, &cr, master)
-				if newMaster, _, err := opsentinel.TriggerFailover(ctx, &cr, pods, sentinelPods, r.SentinelFactory, r.ClientFactory, &secSettings); err != nil {
+				opobs.EventStartFailover(r.Recorder, cr, opobs.FailoverTypeAutomatic, fmt.Sprintf("master=%s", master))
+				opobs.EventFailoverTriggered(r.Recorder, cr, master)
+				if newMaster, _, err := opsentinel.TriggerFailover(ctx, cr, pods, sentinelPods, r.SentinelFactory, r.ClientFactory, &secSettings); err != nil {
 					if errors.Is(err, opsentinel.ErrNoGoodSlave) {
-						if shouldEmitNoGoodSlaveEvent(&cr) {
-							opobs.EventNoGoodSlave(r.Recorder, &cr, "sentinel reported NOGOODSLAVE")
+						if shouldEmitNoGoodSlaveEvent(cr) {
+							opobs.EventNoGoodSlave(r.Recorder, cr, "sentinel reported NOGOODSLAVE")
 						}
-						delay := r.applyBackoffDelay(&cr, resourceKey, 10*time.Second)
+						delay := r.applyBackoffDelay(cr, sentinelGoodSlaveKey, 10*time.Second)
 						logger.Info("sentinel refused failover: NOGOODSLAVE; waiting for replicas", "master", master, "after", delay)
-						res = ctrl.Result{RequeueAfter: delay}
-						return res, nil
+						res := ctrl.Result{RequeueAfter: delay}
+						return res, true, nil
 					}
 					logger.Error(err, "controlled failover failed")
-					opobs.EventFailoverCompleted(r.Recorder, &cr, "", err)
-					opobs.EventNewMaster(r.Recorder, &cr, "", opobs.FailoverTypeAutomatic, err)
-					delay := r.applyBackoffDelay(&cr, resourceKey, 7*time.Second)
-					res = ctrl.Result{RequeueAfter: delay}
-					return res, nil
+					opobs.EventFailoverCompleted(r.Recorder, cr, "", err)
+					opobs.EventNewMaster(r.Recorder, cr, "", opobs.FailoverTypeAutomatic, err)
+					delay := r.applyBackoffDelay(cr, resourceKey, 7*time.Second)
+					res := ctrl.Result{RequeueAfter: delay}
+					return res, true, nil
 				} else {
-					opobs.EventFailoverCompleted(r.Recorder, &cr, newMaster, nil)
-					opobs.EventNewMaster(r.Recorder, &cr, newMaster, opobs.FailoverTypeAutomatic, nil)
+					opobs.EventFailoverCompleted(r.Recorder, cr, newMaster, nil)
+					opobs.EventNewMaster(r.Recorder, cr, newMaster, opobs.FailoverTypeAutomatic, nil)
 					// Mark former master for one-off restart if not captured by plan
 					base := cr.DeepCopy()
 					if cr.Annotations == nil {
 						cr.Annotations = map[string]string{}
 					}
 					cr.Annotations[core.AnnotationRestartFormerMaster] = former
-					if err := r.Patch(ctx, &cr, client.MergeFrom(base)); err != nil {
+					if err := r.Patch(ctx, cr, client.MergeFrom(base)); err != nil {
 						logger.Error(err, "annotate former master for restart failed")
 					}
 				}
 				// Requeue to observe new roles and then update the former master as a replica
-				delay := r.applyBackoffDelay(&cr, resourceKey, 5*time.Second)
-				res = ctrl.Result{RequeueAfter: delay}
-				return res, nil
+				delay := r.applyBackoffDelay(cr, resourceKey, 5*time.Second)
+				res := ctrl.Result{RequeueAfter: delay}
+				return res, true, nil
 			} else {
-				if shouldEmitNoGoodSlaveEvent(&cr) {
-					opobs.EventNoGoodSlave(r.Recorder, &cr, detail)
+				if shouldEmitNoGoodSlaveEvent(cr) {
+					opobs.EventNoGoodSlave(r.Recorder, cr, detail)
 				}
-				delay := r.applyBackoffDelay(&cr, resourceKey, 7*time.Second)
+				delay := r.applyBackoffDelay(cr, sentinelGoodSlaveKey, 7*time.Second)
 				logger.Info("waiting for good slave before failover", "detail", detail, "after", delay)
-				res = ctrl.Result{RequeueAfter: delay}
-				return res, nil
+				res := ctrl.Result{RequeueAfter: delay}
+				return res, true, nil
 			}
 		}
-		evictedPod, err := opupdate.Execute(ctx, r.Client, &cr, plan, pods, healthStates, opupdate.ExecuteOptions{
+		evictedPod, err := opupdate.Execute(ctx, r.Client, cr, plan, pods, healthStates, opupdate.ExecuteOptions{
 			Logger:           logger,
 			Component:        opupdate.ComponentRedis,
 			EvictionSettings: r.evictionSettings,
 		})
 		if err != nil {
 			if errors.Is(err, opupdate.ErrEvictionRejected) {
-				opobs.SetUpdateInProgress(&cr, false)
-				if changed, annErr := setUpdateBlockedAnnotation(ctx, r.Client, &cr, "PDBLimit"); annErr != nil {
-					return ctrl.Result{}, controllererrors.WrapTransient(fmt.Errorf("set PDB block annotation: %w", annErr))
+				opobs.SetUpdateInProgress(cr, false)
+				if changed, annErr := setUpdateBlockedAnnotation(ctx, r.Client, cr, "PDBLimit"); annErr != nil {
+					return ctrl.Result{}, true, controllererrors.WrapTransient(fmt.Errorf("set PDB block annotation: %w", annErr))
 				} else if changed {
-					opobs.IncDisruptionsBlocked(&cr, "PDBLimit")
-					opobs.EventRollingStepBlocked(r.Recorder, &cr, "PDBLimit", "PodDisruptionBudget rejected eviction")
+					opobs.IncDisruptionsBlocked(cr, "PDBLimit")
+					opobs.EventRollingStepBlocked(r.Recorder, cr, "PDBLimit", "PodDisruptionBudget rejected eviction")
 				}
-				delay := r.applyBackoffDelay(&cr, resourceKey, 5*time.Second)
-				res = ctrl.Result{RequeueAfter: delay}
-				return res, nil
+				delay := r.applyBackoffDelay(cr, resourceKey, 5*time.Second)
+				res := ctrl.Result{RequeueAfter: delay}
+				return res, true, nil
 			}
-			return ctrl.Result{}, controllererrors.WrapTransient(fmt.Errorf("execute update plan: %w", err))
+			wrap := fmt.Errorf("execute update plan: %w", err)
+			if opupdate.PlanHasConfigDrift(plan) {
+				wrap = controllererrors.WrapConfigDrift(wrap)
+			}
+			return ctrl.Result{}, true, controllererrors.WrapTransient(wrap)
 		}
 		if evictedPod != "" {
-			delay := r.applyBackoffDelay(&cr, resourceKey, 5*time.Second)
+			delay := r.applyBackoffDelay(cr, resourceKey, 5*time.Second)
 			logger.Info("evicted pod for rolling update", "pod", evictedPod, "reasons", plan.Reasons[evictedPod], "after", delay)
-			opobs.EventPodEvicted(r.Recorder, &cr, evictedPod, plan.Reasons[evictedPod])
-			res = ctrl.Result{RequeueAfter: delay}
-			return res, nil
+			opobs.EventPodEvicted(r.Recorder, cr, evictedPod, plan.Reasons[evictedPod])
+			res := ctrl.Result{RequeueAfter: delay}
+			return res, true, nil
 		}
 		// If nothing deleted and we marked a former master to restart, try a one-off safe deletion
 		if cr.Annotations != nil {
 			if fm := cr.Annotations[core.AnnotationRestartFormerMaster]; fm != "" {
-				evicted, evictErr := r.tryEvictFormerMaster(ctx, logger, &cr, fm, pods)
+				evicted, evictErr := r.tryEvictFormerMaster(ctx, logger, cr, fm, pods)
 				if evictErr != nil {
 					if errors.Is(evictErr, opeviction.ErrRejected) {
-						if changed, annErr := setUpdateBlockedAnnotation(ctx, r.Client, &cr, "PDBLimit"); annErr != nil {
-							return ctrl.Result{}, controllererrors.WrapTransient(fmt.Errorf("set PDB block annotation: %w", annErr))
+						if changed, annErr := setUpdateBlockedAnnotation(ctx, r.Client, cr, "PDBLimit"); annErr != nil {
+							return ctrl.Result{}, true, controllererrors.WrapTransient(fmt.Errorf("set PDB block annotation: %w", annErr))
 						} else if changed {
-							opobs.IncDisruptionsBlocked(&cr, "PDBLimit")
-							opobs.EventRollingStepBlocked(r.Recorder, &cr, "PDBLimit", "PodDisruptionBudget rejected eviction")
+							opobs.IncDisruptionsBlocked(cr, "PDBLimit")
+							opobs.EventRollingStepBlocked(r.Recorder, cr, "PDBLimit", "PodDisruptionBudget rejected eviction")
 						}
-						delay := r.applyBackoffDelay(&cr, resourceKey, 5*time.Second)
+						delay := r.applyBackoffDelay(cr, resourceKey, 5*time.Second)
 						logger.Info("former master eviction blocked", "pod", fm, "after", delay)
-						res = ctrl.Result{RequeueAfter: delay}
-						return res, nil
+						res := ctrl.Result{RequeueAfter: delay}
+						return res, true, nil
 					}
-					return ctrl.Result{}, controllererrors.WrapTransient(fmt.Errorf("evict former master %s: %w", fm, evictErr))
+					return ctrl.Result{}, true, controllererrors.WrapTransient(fmt.Errorf("evict former master %s: %w", fm, evictErr))
 				}
 				if evicted {
 					base := cr.DeepCopy()
@@ -552,30 +637,30 @@ func (r *KeyValClusterReconciler) reconcileClusterImpl(ctx context.Context, stat
 					if len(cr.Annotations) == 0 {
 						cr.Annotations = nil
 					}
-					if err := r.Patch(ctx, &cr, client.MergeFrom(base)); err != nil {
+					if err := r.Patch(ctx, cr, client.MergeFrom(base)); err != nil {
 						logger.Error(err, "clear restart-former-master annotation failed")
 					}
-					delay := r.applyBackoffDelay(&cr, resourceKey, 5*time.Second)
+					delay := r.applyBackoffDelay(cr, resourceKey, 5*time.Second)
 					logger.Info("evicted former master for restart", "pod", fm, "after", delay)
-					opobs.EventPodEvicted(r.Recorder, &cr, fm, []string{"restart-former-master"})
-					res = ctrl.Result{RequeueAfter: delay}
-					return res, nil
+					opobs.EventPodEvicted(r.Recorder, cr, fm, []string{"restart-former-master"})
+					res := ctrl.Result{RequeueAfter: delay}
+					return res, true, nil
 				}
 			}
 		}
 	} else {
-		opobs.SetUpdateInProgress(&cr, false)
-		if cleared, prevReason, err := clearUpdateBlockedAnnotation(ctx, r.Client, &cr); err != nil {
-			return ctrl.Result{}, controllererrors.WrapTransient(fmt.Errorf("clear update-blocked annotation: %w", err))
+		opobs.SetUpdateInProgress(cr, false)
+		if cleared, prevReason, err := clearUpdateBlockedAnnotation(ctx, r.Client, cr); err != nil {
+			return ctrl.Result{}, true, controllererrors.WrapTransient(fmt.Errorf("clear update-blocked annotation: %w", err))
 		} else if cleared {
-			opobs.EventRollingStepResumed(r.Recorder, &cr, prevReason)
+			opobs.EventRollingStepResumed(r.Recorder, cr, prevReason)
 		}
 	}
 
 	// Sentinel rolling plan (Dedicated mode)
 	if cr.Spec.Mode == keyvalv1alpha1.ModeSentinel && len(sentinelPods) > 0 {
-		ssSent := resources.SentinelStatefulSet(&cr, hash, tlsHash, &secSettings)
-		sp := opupdate.PlanUpdates(ctx, &cr, ssSent, sentinelPods, healthStates, nil)
+		ssSent := resources.SentinelStatefulSet(cr, hash, tlsHash, &secSettings)
+		sp := opupdate.PlanUpdates(ctx, cr, ssSent, sentinelPods, healthStates, nil)
 		if len(sp.PodNames) > 1 {
 			sort.Slice(sp.PodNames, func(i, j int) bool { return core.Ordinal(sp.PodNames[i]) < core.Ordinal(sp.PodNames[j]) })
 		}
@@ -614,62 +699,66 @@ func (r *KeyValClusterReconciler) reconcileClusterImpl(ctx context.Context, stat
 				Mode:             cr.Spec.Mode,
 			})
 			if sGuard.Blocked {
-				opobs.SetUpdateInProgress(&cr, false)
-				if changed, err := setUpdateBlockedAnnotation(ctx, r.Client, &cr, sGuard.Reason); err != nil {
-					return ctrl.Result{}, controllererrors.WrapTransient(fmt.Errorf("set update-blocked annotation: %w", err))
+				opobs.SetUpdateInProgress(cr, false)
+				if changed, err := setUpdateBlockedAnnotation(ctx, r.Client, cr, sGuard.Reason); err != nil {
+					return ctrl.Result{}, true, controllererrors.WrapTransient(fmt.Errorf("set update-blocked annotation: %w", err))
 				} else if changed {
-					opobs.IncDisruptionsBlocked(&cr, sGuard.Reason)
-					opobs.EventRollingStepBlocked(r.Recorder, &cr, sGuard.Reason, sGuard.Detail)
+					opobs.IncDisruptionsBlocked(cr, sGuard.Reason)
+					opobs.EventRollingStepBlocked(r.Recorder, cr, sGuard.Reason, sGuard.Detail)
 				}
-				delay := r.applyBackoffDelay(&cr, resourceKey, sGuard.RequeueAfter)
-				res = ctrl.Result{RequeueAfter: delay}
-				return res, nil
+				delay := r.applyBackoffDelay(cr, resourceKey, sGuard.RequeueAfter)
+				res := ctrl.Result{RequeueAfter: delay}
+				return res, true, nil
 			}
-			if cleared, prevReason, err := clearUpdateBlockedAnnotation(ctx, r.Client, &cr); err != nil {
-				return ctrl.Result{}, controllererrors.WrapTransient(fmt.Errorf("clear update-blocked annotation: %w", err))
+			if cleared, prevReason, err := clearUpdateBlockedAnnotation(ctx, r.Client, cr); err != nil {
+				return ctrl.Result{}, true, controllererrors.WrapTransient(fmt.Errorf("clear update-blocked annotation: %w", err))
 			} else if cleared {
-				opobs.EventRollingStepResumed(r.Recorder, &cr, prevReason)
+				opobs.EventRollingStepResumed(r.Recorder, cr, prevReason)
 			}
-			opobs.SetUpdateInProgress(&cr, true)
-			evictedPod, err := opupdate.Execute(ctx, r.Client, &cr, sp, sentinelPods, healthStates, opupdate.ExecuteOptions{
+			opobs.SetUpdateInProgress(cr, true)
+			evictedPod, err := opupdate.Execute(ctx, r.Client, cr, sp, sentinelPods, healthStates, opupdate.ExecuteOptions{
 				Logger:           logger,
 				Component:        opupdate.ComponentSentinel,
 				EvictionSettings: r.evictionSettings,
 			})
 			if err != nil {
 				if errors.Is(err, opupdate.ErrEvictionRejected) {
-					opobs.SetUpdateInProgress(&cr, false)
-					if changed, annErr := setUpdateBlockedAnnotation(ctx, r.Client, &cr, "PDBLimit"); annErr != nil {
-						return ctrl.Result{}, controllererrors.WrapTransient(fmt.Errorf("set PDB block annotation: %w", annErr))
+					opobs.SetUpdateInProgress(cr, false)
+					if changed, annErr := setUpdateBlockedAnnotation(ctx, r.Client, cr, "PDBLimit"); annErr != nil {
+						return ctrl.Result{}, true, controllererrors.WrapTransient(fmt.Errorf("set PDB block annotation: %w", annErr))
 					} else if changed {
-						opobs.IncDisruptionsBlocked(&cr, "PDBLimit")
-						opobs.EventRollingStepBlocked(r.Recorder, &cr, "PDBLimit", "PodDisruptionBudget rejected eviction")
+						opobs.IncDisruptionsBlocked(cr, "PDBLimit")
+						opobs.EventRollingStepBlocked(r.Recorder, cr, "PDBLimit", "PodDisruptionBudget rejected eviction")
 					}
-					delay := r.applyBackoffDelay(&cr, resourceKey, 5*time.Second)
-					res = ctrl.Result{RequeueAfter: delay}
-					return res, nil
+					delay := r.applyBackoffDelay(cr, resourceKey, 5*time.Second)
+					res := ctrl.Result{RequeueAfter: delay}
+					return res, true, nil
 				}
-				return ctrl.Result{}, controllererrors.WrapTransient(fmt.Errorf("execute sentinel update plan: %w", err))
+				wrap := fmt.Errorf("execute sentinel update plan: %w", err)
+				if opupdate.PlanHasConfigDrift(sp) {
+					wrap = controllererrors.WrapConfigDrift(wrap)
+				}
+				return ctrl.Result{}, true, controllererrors.WrapTransient(wrap)
 			}
 			if evictedPod != "" {
-				delay := r.applyBackoffDelay(&cr, resourceKey, 5*time.Second)
+				delay := r.applyBackoffDelay(cr, resourceKey, 5*time.Second)
 				logger.Info("evicted sentinel pod for rolling update", "pod", evictedPod, "reasons", sp.Reasons[evictedPod], "after", delay)
-				opobs.EventPodEvicted(r.Recorder, &cr, evictedPod, sp.Reasons[evictedPod])
-				res = ctrl.Result{RequeueAfter: delay}
-				return res, nil
+				opobs.EventPodEvicted(r.Recorder, cr, evictedPod, sp.Reasons[evictedPod])
+				res := ctrl.Result{RequeueAfter: delay}
+				return res, true, nil
 			}
-			opobs.SetUpdateInProgress(&cr, false)
+			opobs.SetUpdateInProgress(cr, false)
 		}
 	}
 
 	if after := state.NextRequeue(); after > 0 {
-		delay := r.applyBackoffDelay(&cr, resourceKey, after)
+		delay := r.applyBackoffDelay(cr, resourceKey, after)
 		logger.V(1).Info("pod lifecycle pending; requeue scheduled", "after", delay)
-		res = ctrl.Result{RequeueAfter: delay}
-		return res, nil
+		res := ctrl.Result{RequeueAfter: delay}
+		return res, true, nil
 	}
 	logger.V(1).Info("reconciled headless service, configmap, statefulset; no rolling action")
-	return ctrl.Result{}, nil
+	return ctrl.Result{}, false, nil
 }
 
 // goodSlaveEventCooldown tracks last emission per cluster to avoid event spam

@@ -85,7 +85,7 @@ func Labels(ctx context.Context, state *reconcile.State) error {
 			if err := deps.Client.Patch(ctx, cur, patch); err != nil {
 				if !apierrors.IsConflict(err) {
 					patchLogger.Error(err, "role label patch failed", "attempt", attempt, "resourceVersion", base.ResourceVersion)
-					return controllererrors.WrapTransient(fmt.Errorf("patch role label %s: %w", cur.Name, err))
+					return controllererrors.WrapTransient(controllererrors.WrapKubeAPI(fmt.Errorf("patch role label %s: %w", cur.Name, err)))
 				}
 				*cur = *base
 				opobs.IncPodLabelPatchConflict(cr, cur.Name)
@@ -101,7 +101,7 @@ func Labels(ctx context.Context, state *reconcile.State) error {
 						patchLogger.Info("pod disappeared while retrying role label patch", "attempt", attempt, "resourceVersion", base.ResourceVersion)
 						return nil
 					}
-					return controllererrors.WrapTransient(fmt.Errorf("refresh pod %s after conflict: %w", cur.Name, getErr))
+					return controllererrors.WrapTransient(controllererrors.WrapKubeAPI(fmt.Errorf("refresh pod %s after conflict: %w", cur.Name, getErr)))
 				}
 				pods[i] = refreshed
 				continue
