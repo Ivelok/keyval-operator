@@ -43,8 +43,9 @@ import (
 )
 
 const (
-	scaleDirectionUp   = "up"
-	scaleDirectionDown = "down"
+	scaleDirectionUp      = "up"
+	scaleDirectionDown    = "down"
+	stableRequeueInterval = 30 * time.Second
 )
 
 type statusSummary struct {
@@ -763,8 +764,11 @@ func (r *KeyValClusterReconciler) reconcileUpdatesAndRequeue(ctx context.Context
 		res := ctrl.Result{RequeueAfter: delay}
 		return res, true, nil
 	}
-	logger.V(1).Info("reconciled headless service, configmap, statefulset; no rolling action")
-	return ctrl.Result{}, false, nil
+	if r.backoffs != nil {
+		r.backoffs.Reset(resourceKey)
+	}
+	logger.V(1).Info("reconciled headless service, configmap, statefulset; periodic requeue scheduled", "after", stableRequeueInterval)
+	return ctrl.Result{RequeueAfter: stableRequeueInterval}, true, nil
 }
 
 // goodSlaveEventCooldown tracks last emission per cluster to avoid event spam

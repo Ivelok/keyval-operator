@@ -47,8 +47,9 @@ In CI the matrix `k8s` (suite=`e2e`) spins up a kind cluster, runs `make e2e`, a
   - `CHAOS_PING_INTERVAL` controls client probe cadence (default `1s`).
   - `KEEP_ARTIFACTS=1` is required to persist `*-metrics.json` for `make sla-report`.
 - **Cluster preparation:** make sure the operator is built and deployed beforehand (for example `IMG=controller:dev KIND_CLUSTER_NAME=kv-dev make redeploy`).
-- **Shortcut:** `hack/chaos-run.sh` redeploys the operator, runs chaos with artifacts, and generates the SLA report.
-- **Registry workflow:** use `make chaos-registry` with `LOCAL_REGISTRY/LOCAL_REPOSITORY/LOCAL_TAG/LOCAL_REGISTRY_PASSWORD` to build, push, deploy, and run chaos against a remote cluster.
+- **Shortcut:** `hack/chaos-run.sh` runs `make chaos-registry` and generates the SLA report.
+- **Registry workflow:** use `make chaos-registry` with `LOCAL_REGISTRY/LOCAL_REPOSITORY/LOCAL_TAG/LOCAL_REGISTRY_PASSWORD` to build, push, deploy, and run chaos against a remote cluster. For multi-arch clusters, set `DOCKER_PLATFORM=linux/amd64`.
+- **Partition targeting:** the sentinel partition test targets the master pod via `role=master` labels because Cilium policies do not match on derived labels like `statefulset.kubernetes.io/pod-name`.
 
 The CI matrix `k8s` (suite=`chaos`) performs:
 1. `make redeploy` (prepare image + manifests).

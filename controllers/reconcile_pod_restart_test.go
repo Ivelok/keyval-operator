@@ -136,8 +136,8 @@ func TestReconcile_PodRestart_ReattachesReplica(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second reconcile err: %v", err)
 	}
-	if res.RequeueAfter != 0 {
-		t.Fatalf("expected no requeue once pod ready, got %s", res.RequeueAfter)
+	if res.RequeueAfter != stableRequeueInterval {
+		t.Fatalf("expected periodic requeue of %s once pod ready, got %s", stableRequeueInterval, res.RequeueAfter)
 	}
 	calls := factory.clients["demo-1"].replicaOfCalls
 	if len(calls) == 0 {

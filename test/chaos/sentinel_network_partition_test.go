@@ -77,7 +77,7 @@ func TestSentinelNetworkPartition(t *testing.T) {
 		if err := availability.Start(ctx); err != nil {
 			t.Fatalf("start availability recorder: %v", err)
 		}
-		name, err := applyCiliumPartition(ctx, s, cr, masterBefore)
+		name, err := applyCiliumPartition(ctx, s, cr)
 		if err != nil {
 			if apierrors.IsNotFound(err) {
 				t.Skipf("cilium network policy CRD unavailable: %v", err)
@@ -120,26 +120,23 @@ func TestSentinelNetworkPartition(t *testing.T) {
 	})
 }
 
-func applyCiliumPartition(ctx context.Context, s *suite.Suite, cr *keyvalv1alpha1.KeyValCluster, masterName string) (string, error) {
+func applyCiliumPartition(ctx context.Context, s *suite.Suite, cr *keyvalv1alpha1.KeyValCluster) (string, error) {
 	if cr == nil {
 		return "", fmt.Errorf("cluster is nil")
-	}
-	if masterName == "" {
-		return "", fmt.Errorf("master name is empty")
 	}
 	cfg := s.Harness.RestConfig()
 	dyn, err := dynamic.NewForConfig(cfg)
 	if err != nil {
 		return "", fmt.Errorf("build dynamic client: %w", err)
 	}
-	name := ciliumPolicyName(cr.Name)
+	generateName := ciliumPolicyGenerateName(cr.Name)
 	obj := &unstructured.Unstructured{
 		Object: map[string]interface{}{
 			"apiVersion": "cilium.io/v2",
 			"kind":       "CiliumNetworkPolicy",
 			"metadata": map[string]interface{}{
-				"name":      name,
-				"namespace": cr.Namespace,
+				"generateName": generateName,
+				"namespace":    cr.Namespace,
 				"labels": map[string]interface{}{
 					"keyvalcluster": cr.Name,
 					"scenario":      "sentinel-network-partition",
@@ -193,11 +190,11 @@ func applyCiliumPartition(ctx context.Context, s *suite.Suite, cr *keyvalv1alpha
 		},
 	}
 	gvr := schema.GroupVersionResource{Group: "cilium.io", Version: "v2", Resource: "ciliumnetworkpolicies"}
-	_, err = dyn.Resource(gvr).Namespace(cr.Namespace).Create(ctx, obj, metav1.CreateOptions{})
+	created, err := dyn.Resource(gvr).Namespace(cr.Namespace).Create(ctx, obj, metav1.CreateOptions{})
 	if err != nil {
 		return "", err
 	}
-	return name, nil
+	return created.GetName(), nil
 }
 
 func removeCiliumPartition(ctx context.Context, s *suite.Suite, name, namespace string) error {
@@ -218,19 +215,24 @@ func uniqueSuffix() string {
 	return strconv.FormatInt(time.Now().UnixNano(), 36)
 }
 
-func ciliumPolicyName(cluster string) string {
+func ciliumPolicyGenerateName(cluster string) string {
 	base := fmt.Sprintf("kv-%s-block-master", cluster)
-	suffix := uniqueSuffix()
-	maxBase := 63 - 1 - len(suffix)
-	if maxBase < 1 {
-		maxBase = 1
-	}
-	if len(base) > maxBase {
-		base = base[:maxBase]
-	}
+	base = strings.ToLower(strings.TrimSpace(base))
+	base = strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
+			return r
+		}
+		return '-'
+	}, base)
 	base = strings.Trim(base, "-")
 	if base == "" {
 		base = "kv-block-master"
 	}
-	return fmt.Sprintf("%s-%s", base, suffix)
+	if len(base) > 62 {
+		base = strings.TrimRight(base[:62], "-")
+		if base == "" {
+			base = "kv-block-master"
+		}
+	}
+	return base + "-"
 }

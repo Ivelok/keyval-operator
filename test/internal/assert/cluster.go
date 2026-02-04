@@ -573,8 +573,7 @@ func isTransientK8sError(err error) bool {
 	if errors.As(err, &netErr) && (netErr.Timeout() || netErr.Temporary()) {
 		return true
 	}
-	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "context deadline exceeded") || strings.Contains(msg, "i/o timeout")
+	return false
 }
 
 // MasterPod returns the current master Pod object.
