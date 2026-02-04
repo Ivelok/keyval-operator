@@ -5,7 +5,9 @@ package assert
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
+	"net"
 	"sort"
 	"strconv"
 	"strings"
@@ -14,6 +16,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -509,10 +512,16 @@ func WaitForMasterChange(t *testing.T, h *harness.Harness, cluster *keyvalv1alph
 	if err := wait.PollUntilContextTimeout(ctx, time.Second, timeout, true, func(ctx context.Context) (bool, error) {
 		var latest keyvalv1alpha1.KeyValCluster
 		if err := h.Client().Get(ctx, key, &latest); err != nil {
+			if isTransientK8sError(err) {
+				return false, nil
+			}
 			return false, err
 		}
 		var podList corev1.PodList
 		if err := h.Client().List(ctx, &podList, client.InNamespace(cluster.Namespace), client.MatchingLabels(labels.Set{"keyvalcluster": cluster.Name})); err != nil {
+			if isTransientK8sError(err) {
+				return false, nil
+			}
 			return false, err
 		}
 		var masterPod *corev1.Pod
@@ -545,6 +554,26 @@ func WaitForMasterChange(t *testing.T, h *harness.Harness, cluster *keyvalv1alph
 	}); err != nil {
 		t.Fatalf("wait for master change: %v", err)
 	}
+}
+
+func isTransientK8sError(err error) bool {
+	if err == nil {
+		return false
+	}
+	switch {
+	case apierrors.IsTimeout(err),
+		apierrors.IsServerTimeout(err),
+		apierrors.IsTooManyRequests(err):
+		return true
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && (netErr.Timeout() || netErr.Temporary()) {
+		return true
+	}
+	return false
 }
 
 // MasterPod returns the current master Pod object.

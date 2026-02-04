@@ -11,6 +11,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	keyvalv1alpha1 "github.com/ivelok/keyval-operator/api/v1alpha1"
@@ -29,6 +30,8 @@ func (h *Harness) Context() context.Context { return context.Background() }
 func (h *Harness) Client() client.Client { panic("test/internal/harness requires -tags=e2e") }
 
 func (h *Harness) Kube() kubernetes.Interface { panic("test/internal/harness requires -tags=e2e") }
+
+func (h *Harness) RestConfig() *rest.Config { panic("test/internal/harness requires -tags=e2e") }
 
 func (h *Harness) Namespace() string { return "" }
 

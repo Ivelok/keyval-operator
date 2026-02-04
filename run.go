@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 
+	"go.uber.org/zap/zapcore"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -13,7 +14,10 @@ import (
 
 // Run owns controller-runtime setup and manager startup.
 func Run(ctx context.Context, cfg AppConfig) error {
-	ctrl.SetLogger(zap.New(zap.UseDevMode(cfg.ZapDev)))
+	ctrl.SetLogger(zap.New(
+		zap.UseDevMode(cfg.ZapDev),
+		zap.StacktraceLevel(zapcore.PanicLevel),
+	))
 
 	restCfg := ctrl.GetConfigOrDie()
 	selection, selErr := controllers.ResolveReconcileProfile(ctx, restCfg, scheme)

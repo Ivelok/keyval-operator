@@ -173,8 +173,8 @@ func TestReconcileStandalone_Idempotent(t *testing.T) {
 
 	if res, err := r.Reconcile(ctx, req); err != nil {
 		t.Fatalf("second reconcile: %v", err)
-	} else if res.RequeueAfter != 0 {
-		t.Fatalf("expected zero requeue on idempotent reconcile, got %s", res.RequeueAfter)
+	} else if res.RequeueAfter != stableRequeueInterval {
+		t.Fatalf("expected periodic requeue of %s on idempotent reconcile, got %s", stableRequeueInterval, res.RequeueAfter)
 	}
 
 	var cmAfter corev1.ConfigMap

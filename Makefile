@@ -85,7 +85,7 @@ E2E_NAMESPACE ?= keyval-e2e
 CHAOS_TAGS ?= chaos
 CHAOS_TIMEOUT ?= 20m
 CHAOS_NAMESPACE ?= keyval-chaos
-CHAOS_EXPERIMENTS ?= pod-kill-master,network-latency,sentinel-flood
+CHAOS_EXPERIMENTS ?= pod-kill-storm,sentinel-network-partition,replica-restart-loop,sentinel-restart-loop
 
 docker-build:
 	@echo "Building Docker image $(IMG)..."
@@ -134,7 +134,7 @@ e2e-test:
 
 e2e: e2e-setup e2e-test
 
-.PHONY: e2e-registry
+.PHONY: e2e-registry chaos-registry
 e2e-registry:
 	@if [ -z "$(LOCAL_REGISTRY)" ] || [ -z "$(LOCAL_REPOSITORY)" ] || [ -z "$(LOCAL_TAG)" ]; then \
 		echo "LOCAL_REGISTRY, LOCAL_REPOSITORY, and LOCAL_TAG are required (set them in .env or pass on the make command line)"; \
@@ -168,6 +168,39 @@ e2e-registry:
 	@echo "Running e2e suite with image $(LOCAL_IMG)..."
 	@E2E_NAMESPACE=$(E2E_NAMESPACE) IMG=$(LOCAL_IMG) go test -tags=$(E2E_TAGS) -count=1 -v -timeout=$(E2E_TIMEOUT) ./test/suites/...
 
+chaos-registry:
+	@if [ -z "$(LOCAL_REGISTRY)" ] || [ -z "$(LOCAL_REPOSITORY)" ] || [ -z "$(LOCAL_TAG)" ]; then \
+		echo "LOCAL_REGISTRY, LOCAL_REPOSITORY, and LOCAL_TAG are required (set them in .env or pass on the make command line)"; \
+		exit 1; \
+	fi
+	@if [ -z "$(LOCAL_REGISTRY_PASSWORD)" ]; then \
+		echo "LOCAL_REGISTRY_PASSWORD is required (export it or pass on the make command line)"; \
+		exit 1; \
+	fi
+	@echo "Logging in to $(LOCAL_REGISTRY) as $(LOCAL_REGISTRY_USERNAME)..."
+	@printf '%s' "$(LOCAL_REGISTRY_PASSWORD)" | docker login $(LOCAL_REGISTRY) -u $(LOCAL_REGISTRY_USERNAME) --password-stdin
+	@echo "Ensuring pull secret exists in default (secret-copier will propagate)..."
+	@kubectl -n default create secret docker-registry registry-local \
+		--docker-server=$(LOCAL_REGISTRY) \
+		--docker-username=$(LOCAL_REGISTRY_USERNAME) \
+		--docker-password=$(LOCAL_REGISTRY_PASSWORD) \
+		--docker-email=$(LOCAL_REGISTRY_EMAIL) \
+		--dry-run=client -o yaml | kubectl apply -f -
+	@echo "Building image $(LOCAL_IMG) and pushing to local registry $(LOCAL_REGISTRY)..."
+	@$(MAKE) --no-print-directory docker-build IMG=$(LOCAL_IMG)
+	@$(MAKE) --no-print-directory docker-push IMG=$(LOCAL_IMG)
+	@echo "Deploying manifests and pointing controller to $(LOCAL_IMG)..."
+	@kubectl apply -k config/default
+	@for i in 1 2 3 4 5; do \
+		kubectl -n keyval-operator-system get secret registry-local >/dev/null 2>&1 && break; \
+		sleep 2; \
+	done
+	@kubectl -n keyval-operator-system set image deploy/keyval-operator-controller-manager manager=$(LOCAL_IMG)
+	@kubectl -n keyval-operator-system rollout restart deploy/keyval-operator-controller-manager
+	@kubectl -n keyval-operator-system rollout status deploy/keyval-operator-controller-manager --timeout=120s
+	@echo "Running chaos suite with image $(LOCAL_IMG)..."
+	@$(MAKE) --no-print-directory chaos
+
 e2e-clean:
 	@echo "Deleting e2e namespace/resources ($(E2E_NAMESPACE))..."
 	-@kubectl delete keyvalclusters.keyval.ivelok.io -n $(E2E_NAMESPACE) --all --ignore-not-found
@@ -177,13 +210,13 @@ e2e-clean:
 
 chaos:
 	@echo "Running chaos suite (namespace=$(CHAOS_NAMESPACE), experiments=$(CHAOS_EXPERIMENTS))..."
-	E2E_NAMESPACE=$(CHAOS_NAMESPACE) CHAOS_NAMESPACE=$(CHAOS_NAMESPACE) CHAOS_EXPERIMENTS=$(CHAOS_EXPERIMENTS) \
+	E2E_NAMESPACE=$(CHAOS_NAMESPACE) E2E_TIMEOUT=$(CHAOS_TIMEOUT) CHAOS_NAMESPACE=$(CHAOS_NAMESPACE) CHAOS_EXPERIMENTS=$(CHAOS_EXPERIMENTS) \
 		KEEP_RESOURCES=$(KEEP_RESOURCES) KEEP_ARTIFACTS=$(KEEP_ARTIFACTS) \
 		go test -tags=$(CHAOS_TAGS) -count=1 -v -timeout=$(CHAOS_TIMEOUT) ./test/chaos
 
 chaos-test:
 	@echo "Running chaos Go tests only (no deploy)"
-	E2E_NAMESPACE=$(CHAOS_NAMESPACE) CHAOS_NAMESPACE=$(CHAOS_NAMESPACE) CHAOS_EXPERIMENTS=$(CHAOS_EXPERIMENTS) \
+	E2E_NAMESPACE=$(CHAOS_NAMESPACE) E2E_TIMEOUT=$(CHAOS_TIMEOUT) CHAOS_NAMESPACE=$(CHAOS_NAMESPACE) CHAOS_EXPERIMENTS=$(CHAOS_EXPERIMENTS) \
 		go test -tags=$(CHAOS_TAGS) -count=1 -timeout=$(CHAOS_TIMEOUT) ./test/chaos
 
 chaos-clean:

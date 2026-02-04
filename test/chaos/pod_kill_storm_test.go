@@ -15,11 +15,15 @@ import (
 
 	keyvalv1alpha1 "github.com/ivelok/keyval-operator/api/v1alpha1"
 	"github.com/ivelok/keyval-operator/test/internal/assert"
+	"github.com/ivelok/keyval-operator/test/internal/chaosmetrics"
 	"github.com/ivelok/keyval-operator/test/internal/cluster"
 	"github.com/ivelok/keyval-operator/test/internal/suite"
 )
 
 func TestSentinelPodKillStorm(t *testing.T) {
+	cfg := chaosmetrics.LoadConfig(t)
+	chaosmetrics.SkipUnless(t, cfg, "pod-kill-storm")
+
 	s := suite.New(t)
 
 	builder := cluster.NewBuilder(s.Harness.Namespace(), s.Harness.RedisImage()).
@@ -33,6 +37,8 @@ func TestSentinelPodKillStorm(t *testing.T) {
 	cr := builder.Build()
 
 	manager := cluster.NewManager(s.Harness)
+	scenarioMetrics := chaosmetrics.NewScenario(t, s.Harness, cr, cfg, "pod-kill-storm")
+	defer scenarioMetrics.Finish()
 
 	s.Step("create-cluster", func(ctx context.Context) {
 		if err := manager.Apply(ctx, cr); err != nil {
@@ -49,6 +55,11 @@ func TestSentinelPodKillStorm(t *testing.T) {
 	})
 
 	rand.Seed(time.Now().UnixNano())
+	var (
+		masterBefore  string
+		masterUID     types.UID
+		failoverStart time.Time
+	)
 	scenarios := []struct {
 		name string
 		kill func(ctx context.Context)
@@ -64,6 +75,9 @@ func TestSentinelPodKillStorm(t *testing.T) {
 			name: "kill-master",
 			kill: func(ctx context.Context) {
 				master := assert.MasterPod(t, s.Harness, cr)
+				masterBefore = master.Name
+				masterUID = master.UID
+				failoverStart = time.Now()
 				deletePod(ctx, t, s, master.Name)
 			},
 		},
@@ -78,16 +92,37 @@ func TestSentinelPodKillStorm(t *testing.T) {
 
 	for idx, scenario := range scenarios {
 		scenario := scenario
+		var availability *chaosmetrics.AvailabilityRecorder
 		s.Step(fmt.Sprintf("%02d-%s", idx+1, scenario.name), func(ctx context.Context) {
+			availability = chaosmetrics.NewAvailabilityRecorder(t, s.Harness, cr, cfg)
+			if err := availability.Start(ctx); err != nil {
+				t.Fatalf("start availability recorder: %v", err)
+			}
 			scenario.kill(ctx)
 		})
 
 		s.Step(fmt.Sprintf("%02d-wait-recovery", idx+1), func(ctx context.Context) {
+			if scenario.name == "kill-master" {
+				start := failoverStart
+				assert.WaitForMasterChange(t, s.Harness, cr, masterBefore, masterUID, 5*time.Minute)
+				scenarioMetrics.RecordDuration("failover.kill_master", time.Since(start))
+			}
 			updated := manager.WaitReady(ctx, cr, 6*time.Minute)
 			*cr = *updated
 			assert.MasterService(t, s.Harness, cr, time.Minute)
-			assert.SentinelService(t, s.Harness, cr, time.Minute)
+			if scenario.name == "kill-sentinel" {
+				start := time.Now()
+				assert.SentinelService(t, s.Harness, cr, time.Minute)
+				scenarioMetrics.RecordDuration("quorum.kill_sentinel", time.Since(start))
+			} else {
+				assert.SentinelService(t, s.Harness, cr, time.Minute)
+			}
 			assert.ReplicationHealthy(t, s.Harness, cr, 2*time.Minute)
+			if availability == nil {
+				t.Fatalf("availability recorder missing for %s", scenario.name)
+			}
+			downtime := availability.Stop(ctx)
+			scenarioMetrics.RecordDowntime(scenario.name, downtime)
 		})
 	}
 }
