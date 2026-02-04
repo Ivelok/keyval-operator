@@ -36,12 +36,19 @@ In CI the matrix `k8s` (suite=`e2e`) spins up a kind cluster, runs `make e2e`, a
 ## 3. Chaos Scenarios
 - **Command:** `make chaos`
 - **What it does:** executes Go tests under `test/chaos`, which reuse the e2e framework and save JSON metrics (`*-metrics.json`). The suite includes:
-  - `pod-kill-master` — kill the master plus Sentinel pods.
-  - `network-latency` — temporarily hide Sentinel pods (simulate network issues).
-  - `sentinel-flood` — mass Sentinel restarts.
+  - `pod-kill-storm` — kill sentinel, master, and replica pods in sequence.
+  - `sentinel-network-partition` — block Sentinel access to the master to force failover.
+  - `replica-restart-loop` — repeated replica restarts with availability tracking.
+  - `sentinel-restart-loop` — repeated Sentinel restarts with availability tracking.
 - **Variables:**
-  - `CHAOS_NAMESPACE`, `CHAOS_TIMEOUT`, `CHAOS_EXPERIMENTS`, `KEEP_ARTIFACTS`, `KEEP_RESOURCES` (see `test/chaos/README.md`).
+  - `CHAOS_NAMESPACE`, `CHAOS_TIMEOUT`, `CHAOS_EXPERIMENTS`, `CHAOS_ITERATIONS`, `CHAOS_PING_INTERVAL`, `KEEP_ARTIFACTS`, `KEEP_RESOURCES`.
+  - `CHAOS_EXPERIMENTS` is a comma list that filters which tests run; when empty all run.
+  - `CHAOS_ITERATIONS` controls how many restart cycles the loop scenarios execute (default `3`).
+  - `CHAOS_PING_INTERVAL` controls client probe cadence (default `1s`).
+  - `KEEP_ARTIFACTS=1` is required to persist `*-metrics.json` for `make sla-report`.
 - **Cluster preparation:** make sure the operator is built and deployed beforehand (for example `IMG=controller:dev KIND_CLUSTER_NAME=kv-dev make redeploy`).
+- **Shortcut:** `hack/chaos-run.sh` redeploys the operator, runs chaos with artifacts, and generates the SLA report.
+- **Registry workflow:** use `make chaos-registry` with `LOCAL_REGISTRY/LOCAL_REPOSITORY/LOCAL_TAG/LOCAL_REGISTRY_PASSWORD` to build, push, deploy, and run chaos against a remote cluster.
 
 The CI matrix `k8s` (suite=`chaos`) performs:
 1. `make redeploy` (prepare image + manifests).

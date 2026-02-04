@@ -124,6 +124,11 @@ func (h *Harness) Kube() kubernetes.Interface {
 	return h.kube
 }
 
+// RestConfig returns the REST config used by the harness.
+func (h *Harness) RestConfig() *rest.Config {
+	return h.restConfig
+}
+
 // Namespace reports the target namespace used for resources.
 func (h *Harness) Namespace() string {
 	return h.namespace
